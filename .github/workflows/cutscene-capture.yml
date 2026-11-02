@@ -26,6 +26,10 @@ on:
         description: "Explicit view script (res://...gd); overrides the choice above"
         type: string
         default: ""
+      short:
+        description: "Native campaign short key (e.g. s11_election); overrides the view above"
+        type: string
+        default: ""
       secs:
         description: "Seconds of fixed-fps time to run"
         type: string
@@ -40,6 +44,8 @@ on:
       - "scripts/view/proto/**"
       - "scripts/view/crayon*.gd"
       - "scripts/view/crayon_*.gd"
+      - "scripts/ui/shorts.gd"
+      - "assets/cutscenes/shorts/shorts.json"
       - "tests/cutscene_capture.gd"
       - "tools/cutscene_capture.sh"
       - "tools/make_contact_sheet.py"
@@ -54,13 +60,14 @@ permissions:
 
 jobs:
   capture:
-    name: capture (${{ inputs.which || 'cutscene' }})
+    name: capture (${{ inputs.short || inputs.which || 'cutscene' }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       GODOT_VERSION: "4.7.2-stable"  # the project's primary engine (project.godot)
       WHICH: ${{ inputs.which || 'cutscene' }}
       SCENE: ${{ inputs.scene || '' }}
+      SHORT: ${{ inputs.short || '' }}
       SECS: ${{ inputs.secs || '12' }}
       STILLS: ${{ inputs.stills || '1,4,8,11.5' }}
     steps:
@@ -102,7 +109,14 @@ jobs:
           set -euo pipefail
           export GODOT="$HOME/godot/godot"
           export XVFB=1
-          if [ -n "$SCENE" ]; then
+          if [ -n "$SHORT" ]; then
+            if [ "$SECS" = "12" ]; then
+              tools/cutscene_capture.sh --short="$SHORT" --stills="$STILLS"
+            else
+              tools/cutscene_capture.sh --short="$SHORT" --secs="$SECS" --stills="$STILLS"
+            fi
+            name="$SHORT"
+          elif [ -n "$SCENE" ]; then
             tools/cutscene_capture.sh --scene="$SCENE" --secs="$SECS" --stills="$STILLS"
             name="$(basename "$SCENE" .gd)"
           else

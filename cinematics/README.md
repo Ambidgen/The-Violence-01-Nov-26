@@ -1,6 +1,6 @@
 # The Violence: the cutscenes
 
-This directory holds the legacy [Remotion](https://www.remotion.dev) source for the original opening and the short interstitials. The original opening videos have been replaced at runtime by native crayon drawings; the fourteen shorts still play their legacy red-ink renders and are the next migration batch. Retain these sources, audio, and `.ogv` exports until that work is complete.
+This directory holds the archived [Remotion](https://www.remotion.dev) source for the original opening and short interstitials. All eighteen runtime cutscenes have now been replaced by native Godot crayon drawings. Keep these projects, audio, fonts, and `.ogv` exports as references; the game no longer loads the video exports.
 
 ## The opening
 
@@ -13,9 +13,14 @@ The legacy Remotion exports below are retained for reference only. Runtime openi
 | 3 | The Plan | 43 s | a briefing drawn with total confidence, then the same house when the plan meets the room |
 | 4 | Forty Weeks | 39 s | the calendar, the three candidates, the four allies, the first front page, the title |
 
-## The short cutscenes
+## Archived shorts and native replacements
 
-![the fourteen shorts](docs/shorts-sheet.jpg)
+The following table still catalogs the original Remotion compositions. Runtime replacements
+are in `scripts/view/crayon_short.gd`; each receives its props and text slots from the
+manifest in `assets/cutscenes/shorts/shorts.json`. Capture a native version with
+`tools/cutscene_capture.sh --short=s01_week` (after importing the project with Godot).
+
+![the fourteen legacy shorts](docs/shorts-sheet.jpg)
 
 Fourteen interstitials, 5–10 s each, for the beats between the films: a week starting, a
 situation picked off the board, the plan signed, staging in the street, the first door,
@@ -78,6 +83,7 @@ scripts/manifest.mjs     the catalogue the engine reads
 scripts/to_game-shorts.sh the game copies
 ```
 
-In the game, `scripts/ui/shorts.gd` plays them (a `CanvasLayer`, like the opening's
-`cutscene.gd`) and paints slot text; `scripts/main.gd` exposes
-`play_short(key, text, after)` and a `--short=s01_week` hook for recording one.
+In the game, `scripts/ui/shorts.gd` plays the native `crayon_short.gd` view and cues the
+synthesised effects; `scripts/main.gd` exposes `play_short(key, text, after)` and a
+`--short=s01_week` hook. The Remotion render commands above are for the archived source
+compositions only.

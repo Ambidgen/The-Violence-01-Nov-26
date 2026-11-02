@@ -1288,7 +1288,7 @@ func _opening_done() -> void:
 ## A short interstitial, then `after`: five to ten seconds on one beat. `text`
 ## fills whatever slots the short publishes (a name, a ward, a headline); with none, the
 ## short plays on its drawn-in defaults. Honours the same "intro" setting as the opening
-## and never blocks: if the video is not shipped, `after` runs at once.
+## and never blocks: if its native drawing is unavailable, `after` runs at once.
 func play_short(key: String, text := {}, after := Callable()) -> bool:
 	if not bool(Settings.get_v("intro")) or shorts == null or shorts.busy or DisplayServer.get_name() == "headless" or not shorts.available(key):
 		if after.is_valid():
@@ -1300,7 +1300,7 @@ func play_short(key: String, text := {}, after := Callable()) -> bool:
 
 ## A consequential campaign beat, subject to the saved repetition policy. The
 ## callback is always run exactly once, including a skip, a busy player, or a
-## missing/headless video. No simulation random numbers are consumed here.
+## missing/headless native view. No simulation random numbers are consumed here.
 func play_consequence_short(key: String, text := {}, after := Callable(), force := false) -> bool:
 	if campaign == null or shorts == null or shorts.busy or not bool(Settings.get_v("intro")) or DisplayServer.get_name() == "headless" or not shorts.available(key):
 		if after.is_valid():
