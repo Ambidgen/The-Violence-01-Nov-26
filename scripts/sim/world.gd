@@ -2332,6 +2332,15 @@ func _movement_clear(a: Vector2, b: Vector2) -> bool:
 	return geom.dyn_active <= 0 or geom.leaf_in_way(a, b, 0.25) < 0
 
 
+func _route_left(o, p: Vector2) -> float:
+	if o.path_i >= o.path.size():
+		return 0.0
+	var d: float = p.distance_to(o.path[o.path_i])
+	for i in range(o.path_i + 1, o.path.size()):
+		d += o.path[i - 1].distance_to(o.path[i])
+	return d
+
+
 func _move2(o) -> void:
 	var newp: Vector2 = o.pos
 	if blocks_move(o):
@@ -2399,16 +2408,28 @@ func _move2(o) -> void:
 		if o.ticker["step_d"] >= 1.2:
 			o.ticker["step_d"] = 0.0
 			emit_sound(o, o.goal_mode)
-	# Sideways shuffling against a teammate is not progress toward the waypoint.
-	# Do not mistake a door being opened for a body jam.
-	var forward: float = (newp - o.pos).dot(intended.normalized())
-	if o.moving and not stepping and forward < minf(0.005, intended.length() * 0.15) and not door_ahead(o):
-		o.ticker["jam_t"] = o.ticker.get("jam_t", 0.0) + DT
-		if o.ticker["jam_t"] > 1.0:
-			o.ticker["ghost_until"] = t + 0.8
-			o.ticker["jam_t"] = 0.0
-	else:
-		o.ticker["jam_t"] = 0.0
+	# Watch net route progress, not individual forward ticks: two operators can
+	# bounce a few centimetres back and forth indefinitely, with every other tick
+	# looking like progress. Count only active movement (not bound overwatch, door
+	# work or sidesteps), and sample periodically to keep the hot loop inexpensive.
+	if o.moving and not stepping and not door_ahead(o):
+		var watch: Dictionary = o.ticker.get("jam_watch", {})
+		if watch.is_empty() or (watch["goal"] as Vector2).distance_to(o.goal) > 0.4:
+			watch = {"goal": o.goal, "best": _route_left(o, o.pos), "active": 0.0, "sample": 0.0}
+			o.ticker["jam_watch"] = watch
+		watch["active"] += DT
+		watch["sample"] += DT
+		if watch["sample"] >= 0.2:
+			watch["sample"] = 0.0
+			var remaining := _route_left(o, newp)
+			if remaining < watch["best"] - 0.15:
+				watch["best"] = remaining
+				watch["active"] = 0.0
+			elif watch["active"] > 1.0:
+				# Ignore bodies briefly, but still enforce swept walls and door leaves.
+				o.ticker["ghost_until"] = t + 0.8
+				watch["best"] = remaining
+				watch["active"] = 0.0
 	# 4.72: DT is const 1/30 but guard division for future tick changes
 	if DT > 0.0001:
 		o.vel = (newp - o.pos) / DT

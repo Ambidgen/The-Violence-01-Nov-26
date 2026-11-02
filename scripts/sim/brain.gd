@@ -415,6 +415,8 @@ func _next_task(tm: Dictionary, el: Dictionary) -> void:
 		tm["clear_said"] = true
 		if remaining:
 			w.say("%s: no room left it can reach, hunting" % tm["tag"], "info")
+		elif not tm["skipped"].is_empty():
+			w.say("%s: search ended with %d unchecked room(s), hunting" % [tm["tag"], tm["skipped"].size()], "info")
 		else:
 			w.say("%s: building clear, hunting" % tm["tag"], "info")
 	tm["posture"] = "hunt"
@@ -894,6 +896,21 @@ func _room_done(tm: Dictionary, el: Dictionary, what: String) -> void:
 	_next_task(tm, el)
 
 
+## Where the PF10 checker stands on the near side of the small room's door.
+func _check_point(el: Dictionary) -> Vector2:
+	var st: Dictionary = el["task"]
+	var door: Dictionary = w.level.doors[st["door"]]
+	return w.nav.snap(door["c"] - w.level.inward(st["door"], st["into"]) * 1.1 + door["t"] * 0.35)
+
+
+func _skip_check(tm: Dictionary, el: Dictionary) -> void:
+	var into: String = el["task"]["into"]
+	el["last_room"] = into
+	tm["skipped"][into] = true
+	w.say("%s: %s not checked" % [_tag(tm, el), w.level.rooms[into]["title"].to_lower()], "info")
+	_next_task(tm, el)
+
+
 func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 	if el["task"].is_empty():
 		if w.t >= el["retask_t"]:
@@ -908,12 +925,33 @@ func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 			_add_to_entry(el, m)
 	match el["phase"]:
 		"check":
-			if ctl.has("check_done_t") and w.t >= ctl["check_done_t"]:
-				_room_done(tm, el, "checked")
+			# The check can be a long walk from the preceding room. The old 12 s
+			# deadline started at assignment and skipped a reachable room while the
+			# checker was still making progress (notably the Plaza kiosk). Watch the
+			# remaining route instead, with a separate key from hunt/cover progress.
+			var checker = w.by_id.get(ctl.get("checker", ""), null)
+			if checker != null and (not checker.fighting() or checker.el != el["i"] or not checker.has("PF10")):
+				ctl.erase("checker")
+				ctl.erase("check_done_t")
+				checker = null
+			if checker != null:
+				var cp := _check_point(el)
+				var interrupted: bool = w.in_combat(checker) or w.blocks_move(checker)
+				if interrupted or not w.at(checker, cp, 0.3) or w.level.door_shut(st["door"]):
+					ctl.erase("check_done_t")
+				if ctl.has("check_done_t") and w.t >= ctl["check_done_t"]:
+					_room_done(tm, el, "checked")
+				elif interrupted:
+					checker.ticker.erase("check_prog")
+				elif _stuck_on(checker, cp, "check_prog", 12.0) and w.t - el["phase_t"] > 12.0:
+					_skip_check(tm, el)
 			elif w.t - el["phase_t"] > 12.0:
-				el["last_room"] = st["into"]
-				tm["skipped"][st["into"]] = true
-				_next_task(tm, el)
+				var available := false
+				for m in al:
+					if m.fighting() and m.has("PF10"):
+						available = true
+				if not available:
+					_skip_check(tm, el)
 		"approach":
 			var all_ready := true
 			var any_ready := false
@@ -988,11 +1026,32 @@ func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 			if w.t - el["phase_t"] >= GAS_WAIT:
 				_go_entry(tm, el)
 		"entry":
-			var done := true
+			# If all designated entrants become casualties, promote a surviving rear
+			# guard rather than declaring the room clear with nobody able to enter.
+			var have_entrant := false
+			var replacement = null
 			for m in al:
-				if entry[m.id]["enters"] and not entry[m.id]["arrived"]:
+				if not m.fighting():
+					continue
+				if entry[m.id]["enters"]:
+					have_entrant = true
+				if replacement == null or m.pos.distance_to(st_c(el)) < replacement.pos.distance_to(st_c(el)):
+					replacement = m
+			if not have_entrant and replacement != null:
+				entry[replacement.id] = _entry_record(el, replacement, 0, true)
+			var done := true
+			var inside := false
+			for m in al:
+				if not m.fighting() or not entry[m.id]["enters"]:
+					continue
+				if not entry[m.id]["arrived"]:
 					done = false
-			if done or w.t - el["phase_t"] > 9.0:
+				if m.room == st["into"]:
+					inside = true
+			# The nine-second deadline can release a slow stack, but it cannot
+			# clear a room from across the map. Keep the entry order until an
+			# active entrant actually reaches this room.
+			if inside and (done or w.t - el["phase_t"] > 9.0):
 				el["phase"] = "clear"
 				el["phase_t"] = w.t
 		"clear":
@@ -2982,8 +3041,10 @@ func _task_assault(o, tm: Dictionary, el: Dictionary) -> void:
 					if m.has("PF10") and (best == null or m.pos.distance_to(c) < best.pos.distance_to(c)):
 						best = m
 				ctl["checker"] = best.id if best != null else ""
+				if best != null:
+					best.ticker.erase("check_prog")
 			if ctl["checker"] == o.id:
-				var cp: Vector2 = w.nav.snap(c - n_in * 1.1 + D["t"] * 0.35)
+				var cp := _check_point(el)
 				o.dbg = "checking the " + w.level.rooms[st["into"]]["title"].to_lower()
 				if not w.at(o, cp, 0.3):
 					_go(o, cp, "clear", false)
@@ -2991,7 +3052,11 @@ func _task_assault(o, tm: Dictionary, el: Dictionary) -> void:
 				else:
 					w.stop(o)
 					_task_look(o, (c + n_in * 1.6 - o.pos).angle())
-					if not ctl.has("check_done_t"):
+					if w.level.door_shut(st["door"]):
+						# A closed leaf cannot be checked through. Work it using the same
+						# key/breach rules as an ordinary entry before starting the check.
+						w.work_door(o, st["door"])
+					elif not ctl.has("check_done_t"):
 						ctl["check_done_t"] = w.t + 1.0
 			else:
 				o.dbg = "covering the check"
@@ -3124,7 +3189,11 @@ func _task_assault(o, tm: Dictionary, el: Dictionary) -> void:
 				_task_look(o, (w.level.rooms[st["into"]]["label"] - o.pos).angle())
 				return
 			var target: Vector2 = d["target"]
-			if not w.at(o, target, 0.3):
+			# A target within the normal arrival tolerance can still be across a
+			# room boundary. Take the final steps rather than stopping outside.
+			var outside_target_room: bool = w.level.room_at(target) == st["into"] and w.level.room_at(o.pos) != st["into"]
+			if not w.at(o, target, 0.3) or outside_target_room:
+				d["arrived"] = false
 				if w.diagnostics_enabled and not d.get("diag_pf04_started", false):
 					d["diag_pf04_started"] = true
 					w.diagnose("pf04_entry_move", o, {"planned_active": d.get("diag_pf04_plan_active", false),
@@ -3195,7 +3264,7 @@ func _task_hold(o) -> void:
 ## Progress watchdog for operators who should be closing on a point. Measure the
 ## remaining route when there is one: a valid path around a long wall can initially
 ## take the squad farther from its objective for much longer than eight seconds.
-func _stuck_on(o, p: Vector2) -> bool:
+func _stuck_on(o, p: Vector2, tracker := "prog", timeout := 8.0) -> bool:
 	var key := p.snapped(Vector2(0.5, 0.5))
 	var routed: bool = not o.path.is_empty() and o.path_i < o.path.size() and o.goal.distance_to(p) <= 0.4
 	var d: float = o.pos.distance_to(p)
@@ -3203,15 +3272,15 @@ func _stuck_on(o, p: Vector2) -> bool:
 		d = o.pos.distance_to(o.path[o.path_i])
 		for i in range(o.path_i + 1, o.path.size()):
 			d += o.path[i - 1].distance_to(o.path[i])
-	var g: Dictionary = o.ticker.get("prog", {})
+	var g: Dictionary = o.ticker.get(tracker, {})
 	if g.get("key", Vector2.INF) != key or g.get("routed", false) != routed:
-		o.ticker["prog"] = {"key": key, "best": d, "t": w.t, "routed": routed}
+		o.ticker[tracker] = {"key": key, "best": d, "t": w.t, "routed": routed}
 		return false
 	if d < g["best"] - 0.4:
 		g["best"] = d
 		g["t"] = w.t
 		return false
-	return w.t - g["t"] > 8.0
+	return w.t - g["t"] > timeout
 
 
 func _task_hunt(o, tm: Dictionary, el: Dictionary) -> void:

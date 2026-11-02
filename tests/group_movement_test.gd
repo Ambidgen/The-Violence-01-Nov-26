@@ -6,6 +6,8 @@ const Geom = preload("res://scripts/sim/geom.gd")
 const Maps = preload("res://scripts/maps/registry.gd")
 const Nav = preload("res://scripts/sim/nav.gd")
 const World = preload("res://scripts/sim/world.gd")
+const Teams = preload("res://tests/teams.gd")
+const Equipment = preload("res://scripts/data/equipment.gd")
 
 var failures := 0
 
@@ -449,6 +451,175 @@ func test_formation_reassignment() -> void:
 	w.dispose()
 
 
+## PF10 must allow a real detour to a check room, but not wait forever if no progress
+## is possible. These real maps previously skipped the room after 12 s of walking.
+func test_check_room_progress() -> void:
+	Equipment.armory = {}
+	for c in [[4, "LAUNDRY", 100.0], [11, "KIOSK", 220.0]]:
+		var lv = Maps.get_level(c[0])
+		var nav = Nav.new()
+		nav.build(lv)
+		var w = World.new()
+		w.keep_events = false
+		w.setup(lv, nav, Teams.team_with_preset_kit(lv, 0, {"n": 1, "ech": "sof"}), ["assault", "hold"], 101)
+		w.endless = true
+		var check_started := -1.0
+		while w.t < c[2] and not w.teams[0]["cleared"].has(c[1]) and not w.teams[0]["skipped"].has(c[1]):
+			w.step()
+			var el: Dictionary = w.teams[0]["elements"][0]
+			if el["phase"] == "check" and el["task"].get("into", "") == c[1] and check_started < 0.0:
+				check_started = w.t
+		check(check_started >= 0.0 and w.t - check_started > 12.0 and w.teams[0]["cleared"].has(c[1])
+			and not w.teams[0]["skipped"].has(c[1]), "%s is checked after a longer-than-12-second route" % c[1])
+		w.dispose()
+
+	var lv = Maps.get_level(0)
+	var nav = Nav.new()
+	nav.build(lv)
+	var w = World.new()
+	w.keep_events = false
+	w.setup(lv, nav, Teams.team_with_preset_kit(lv, 0, {"n": 1, "ech": "sof"}), ["assault", "hold"], 101)
+	var tm: Dictionary = w.teams[0]
+	var el: Dictionary = tm["elements"][0]
+	w.brain._release(tm, el)
+	el["task"] = {"door": "BATH", "into": "BATH", "check": true}
+	w.brain._begin_task(tm, el)
+	el["ctl"]["checker"] = "A1"
+	# Invoke the team watchdog with an intentionally motionless operator: no combat,
+	# action or route progress can mask a real jam.
+	for tick in 420:
+		w.t += World.DT
+		w.brain._assault_tick(tm, el, [w.by_id["A1"]])
+		if tm["skipped"].has("BATH"):
+			break
+	check(tm["skipped"].has("BATH") and not tm["cleared"].has("BATH"),
+		"a genuinely motionless checker eventually reports the room unchecked")
+	w.dispose()
+
+
+func test_check_room_closed_door_and_reassignment() -> void:
+	var lv = Maps.get_level(0)
+	var nav = Nav.new()
+	nav.build(lv)
+	var w = World.new()
+	w.keep_events = false
+	w.setup(lv, nav, Teams.team_with_preset_kit(lv, 0, {"n": 2, "ech": "sof"}), ["assault", "hold"], 101,
+		[1, 1], {"doors": {"BATH": "closed"}})
+	w.endless = true
+	var replaced := false
+	var falsely_checked := false
+	while w.t < 120.0 and not w.teams[0]["cleared"].has("BATH") and not w.teams[0]["skipped"].has("BATH"):
+		w.step()
+		var el: Dictionary = w.teams[0]["elements"][0]
+		if el["phase"] == "check" and el["task"].get("into", "") == "BATH":
+			if lv.door_shut("BATH") and el["ctl"].has("check_done_t"):
+				falsely_checked = true
+			var id: String = el["ctl"].get("checker", "")
+			if id != "" and not replaced:
+				w.by_id[id].state = "dead"
+				replaced = true
+	check(replaced and w.teams[0]["cleared"].has("BATH") and not w.teams[0]["skipped"].has("BATH"),
+		"a surviving teammate takes over when the checker goes down")
+	check(not falsely_checked and not lv.door_shut("BATH"), "a closed check-room door is opened before the room is checked")
+	w.dispose()
+
+
+## This actual two-person stack oscillated in place against its own teammate at
+## W FRONT. Alternating forward/backward ticks reset the old per-tick jam timer,
+## and the room was eventually marked clear by timeouts without either entering.
+func test_oscillating_doorway_stack() -> void:
+	Equipment.armory = {}
+	var lv = Maps.get_level(5)
+	var nav = Nav.new()
+	nav.build(lv)
+	var w = World.new()
+	w.keep_events = false
+	w.setup(lv, nav, Teams.team_with_preset_kit(lv, 0, {"n": 2, "ech": "sof"}), ["assault", "hold"], 816001)
+	w.endless = true
+	var entered := {}
+	var clipped := false
+	while w.t < 30.0 and not w.teams[0]["cleared"].has("W LIVING"):
+		var before := {}
+		for o in w.teams[0]["members"]:
+			before[o.id] = o.pos
+		w.step()
+		for o in w.teams[0]["members"]:
+			if o.room == "W LIVING":
+				entered[o.id] = true
+			if not lv.geom.move_clear(before[o.id], o.pos, Geom.MOVE_CLEARANCE):
+				clipped = true
+	check(w.teams[0]["cleared"].has("W LIVING") and entered.size() == 2,
+		"an oscillating two-person Duplex stack enters and clears its first room within 30 s")
+	check(not clipped, "doorway-jam recovery never passes either operator through a wall")
+	w.dispose()
+
+
+## A casualty treatment delayed this Plaza squad so its 45 s approach and 9 s
+## entry deadlines both expired while the only survivor was still far outside.
+## A timed-out entry must not be treated as a physically cleared room.
+func test_entry_timeout_does_not_clear_from_afar() -> void:
+	Equipment.armory = {}
+	var lv = Maps.get_level(11)
+	var nav = Nav.new()
+	nav.build(lv)
+	var w = World.new()
+	w.keep_events = false
+	var cfgs: Array = Teams.team_with_preset_kit(lv, 0, {"n": 2, "ech": "sof"}) \
+		+ Teams.team_with_preset_kit(lv, 1, {"n": 2, "ech": "regular"})
+	w.setup(lv, nav, cfgs, ["assault", "hold"], 822001, [1, 1], {"b_stay": true})
+	var entered := false
+	var observed_timeout := false
+	while w.t < 180.0 and not w.teams[0]["cleared"].has("HALL"):
+		w.step()
+		if w.over:
+			if w.winner != 0:
+				break
+			w.over = false
+			w.endless = true
+		var el: Dictionary = w.teams[0]["elements"][0]
+		if el["task"].get("into", "") == "HALL":
+			if el["phase"] == "entry" and w.t - float(el["phase_t"]) > 9.0:
+				observed_timeout = true
+			for o in w.teams[0]["members"]:
+				if o.fighting() and o.room == "HALL":
+					entered = true
+	check(observed_timeout and entered and w.teams[0]["cleared"].has("HALL"),
+		"a long Plaza entry is not marked clear from across the map")
+	w.dispose()
+
+
+## Rear security can take over if every initially designated entrant is lost.
+func test_entry_reassigns_rear_security() -> void:
+	Equipment.armory = {}
+	var lv = Maps.get_level(0)
+	var nav = Nav.new()
+	nav.build(lv)
+	var w = World.new()
+	w.keep_events = false
+	w.setup(lv, nav, Teams.team_with_preset_kit(lv, 0, {"n": 5, "ech": "sof"}), ["assault", "hold"], 101)
+	var tm: Dictionary = w.teams[0]
+	var el: Dictionary = tm["elements"][0]
+	w.brain._release(tm, el)
+	el["task"] = {"door": "BATH", "into": "BATH", "check": false}
+	w.brain._begin_task(tm, el)
+	el["phase"] = "entry"
+	el["phase_t"] = -20.0
+	var removed := 0
+	for m in el["members"]:
+		if el["entry"][m.id]["enters"]:
+			m.state = "dead"
+			removed += 1
+	var survivors: Array = w.brain._alive(el)
+	w.brain._assault_tick(tm, el, survivors)
+	var promoted := 0
+	for m in survivors:
+		if el["entry"][m.id]["enters"]:
+			promoted += 1
+	check(removed > 0 and not survivors.is_empty() and promoted == 1 and el["phase"] == "entry"
+		and not tm["cleared"].has("BATH"), "a surviving rear guard takes over without a remote clear")
+	w.dispose()
+
+
 func _init() -> void:
 	test_navigation_endpoints()
 	test_avoid_overlay()
@@ -458,5 +629,10 @@ func _init() -> void:
 	test_hunting_squad()
 	test_detour_watchdog()
 	test_formation_reassignment()
+	test_check_room_progress()
+	test_check_room_closed_door_and_reassignment()
+	test_oscillating_doorway_stack()
+	test_entry_timeout_does_not_clear_from_afar()
+	test_entry_reassigns_rear_security()
 	print("group movement: %s" % ("PASS" if failures == 0 else "%d FAILED" % failures))
 	quit(1 if failures else 0)
