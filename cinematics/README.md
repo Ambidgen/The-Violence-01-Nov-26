@@ -1,14 +1,10 @@
 # The Violence: the cutscenes
 
-Everything the game plays as video is made here with [Remotion](https://www.remotion.dev):
-the four-minute opening, and the short interstitials the campaign can call at any beat.
-All of it is drawn in the game's red-ink hand: paper, ink, stepped greys and one red that
-only marks where a plan touched a real room. Every sound is one of the game's own
-synthesised effects (`public/sfx`), plus a phone ring made for the opening's scene 2.
+This directory holds the legacy [Remotion](https://www.remotion.dev) source for the original opening and the short interstitials. The original opening videos have been replaced at runtime by native crayon drawings; the fourteen shorts still play their legacy red-ink renders and are the next migration batch. Retain these sources, audio, and `.ogv` exports until that work is complete.
 
 ## The opening
 
-Four scenes, played before a new campaign (and from the title's Prologue).
+The legacy Remotion exports below are retained for reference only. Runtime opening replacements are the native crayon scenes in `scripts/view/proto/` (see `docs/CUTSCENE_CAPTURE.md`).
 
 | # | Scene | Length | What it shows |
 |---|-------|--------|---------------|

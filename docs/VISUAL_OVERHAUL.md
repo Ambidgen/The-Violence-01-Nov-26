@@ -40,9 +40,9 @@ with orange light cones) are **darker, denser and more detailed** than the first
   stroke by stroke.
 
 
-## Status (2026-10-27): gameplay and menus converted
+## Status (2026-11-02): gameplay, menus, and the opening are converted
 
-The overhaul is in the game for everything except cutscenes (left alone, as asked).
+The opening four now run as native crayon scenes from `scripts/view/proto/`, sequenced directly by `scripts/ui/cutscene.gd`. The fourteen campaign shorts still use their legacy Remotion videos; they are the next cutscene batch.
 
 | Area | What changed | Where |
 | --- | --- | --- |
@@ -130,7 +130,8 @@ instance wobbles differently.
 | Effects (`view/decals.gd`, fx SVGs) | red-ink blood, scuffs, casings | blood as a red crayon pool drawn on slowly, muzzle flash as an ochre star, bullet holes as charcoal dots pressed through, casings as tiny orange dashes, tracks as faint graphite loops |
 | Fog (`view/fog.gd`) | grey veil | *undrawn paper*: unseen rooms are blank or only lightly sketched in pencil; seen rooms are coloured in |
 | UI chrome (`ui/*.gd`) | Open Sans on paper cards | keep the readable font for text, but cards become torn sketchbook paper with crayon underlines; buttons get a scribbled box |
-| Cutscenes (Remotion, 18 `.ogv`) | red-ink hand | re-render in the crayon look last (it is the most expensive); the plates are the target |
+| Opening (four scenes) | legacy Remotion videos | replaced in-game by the native crayon scenes `opening_view`, `presser_view`, `jeremy_view`, and `fettick_view`; legacy `.ogv` files remain as unused source artifacts for now |
+| Campaign shorts (14 scenes) | Remotion, `.ogv` | still legacy red-ink; migrate to native crayon scenes after the opening |
 
 ## Technical approach
 

@@ -48,6 +48,17 @@ viewport texture is never drawn, so frame capture silently yields nothing.
 succeed on blank frames or zero stills, and writes the manifest the sheet step reads.
 In CI, Xvfb provides the display; locally, your desktop does.
 
+## Opening replacement status
+
+The four opening entries are now native, capturable crayon views rather than videos:
+`opening_view.gd` (Port Carrick), `presser_view.gd` (The Press Conference),
+`jeremy_view.gd` (Jeremy Berry), and `fettick_view.gd` (This Machine Kills Tyrants). The game
+sequences them from `scripts/ui/cutscene.gd`; their durations come from the view timelines,
+and Space/Enter/click and Esc retain the old skip behavior. Capture any one directly with
+`--scene=res://scripts/view/proto/<view>.gd` and choose still times appropriate to its
+full-length timeline. The fourteen campaign shorts are still legacy videos; replacing
+them remains follow-up work.
+
 ## Conventions for new cutscene beats
 
 - A capturable beat is a `Node2D`/`Control` script loadable on its own (as
