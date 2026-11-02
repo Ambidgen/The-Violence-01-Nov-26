@@ -133,6 +133,11 @@ func _ally_rec(a: String) -> Dictionary:
 	return al
 
 
+## The name the player knows an ally by ("Tommy Rourke"), for the Ledger and the tests.
+func ally_name(a: String) -> String:
+	return String(ALLIES.get(a, {}).get("name", a))
+
+
 func standing(a: String) -> int:
 	return _int_of(_ally_rec(a).get("standing", 0))
 
@@ -157,7 +162,7 @@ func week_causes(week: int) -> Array:
 	var out: Array = []
 	for e in ally_log:
 		if e is Dictionary and _int_of(e.get("week", -1)) == week:
-			out.append("%s %+d — %s" % [String(ALLIES.get(String(e.get("ally", "")), {}).get("name", String(e.get("ally", "")))),
+			out.append("%s %+d — %s" % [ally_name(String(e.get("ally", ""))),
 				_int_of(e.get("delta", 0)), String(e.get("cause", ""))])
 	for e in poll_log:
 		if e is Dictionary and _int_of(e.get("week", -1)) == week:
@@ -555,7 +560,8 @@ func week_end(week: int, board: Array, dept) -> Array:
 			var insts: Array = p["instalments"]
 			for inst in insts:
 				if inst is Dictionary and not bool(inst.get("paid", false)) and int(inst.get("week", -1)) <= week:
-					dept.spend("Instalment of $%s (lawsuit from week %d)" % [dept.money(int(inst["amount"])), int(p.get("op_week", week))], int(inst["amount"]))
+					dept.spend("Settlement of $%s (instalment %d of %d, lawsuit from week %d)" % [dept.money(int(inst["amount"])),
+						insts.find(inst) + 1, insts.size(), int(p.get("op_week", week))], int(inst["amount"]))
 					_ally("council", -3, dept, lines, "a lawsuit instalment ($%s)" % dept.money(int(inst["amount"])))
 					inst["paid"] = true
 					lines.append("Instalment of the lawsuit from week %d: $%s paid." % [int(p.get("op_week", week)), dept.money(int(inst["amount"]))])

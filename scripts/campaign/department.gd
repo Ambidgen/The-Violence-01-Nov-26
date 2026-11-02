@@ -117,7 +117,8 @@ func found(seed_v: int, n := 0) -> void:
 			hire(f[0], f[2], false, float(f[1]))
 	_founding = false
 	allocation = int(round(payroll() * (1.0 + Courses.HEADROOM) / 500.0)) * 500
-	balance = Courses.RESERVE
+	# P1.D5: the tuning constant, not the shipped default (the harness overrides it per run)
+	balance = Courses.reserve
 	note("Department inherited: %d officers (%d with five years or more on the job)." % [officers.size(),
 		officers.filter(func(r): return float(r.get("years", 0.0)) >= 5.0).size()])
 	note("The city allocates $%s a week; payroll is $%s; $%s in the account." % [money(allocation), money(payroll()), money(balance)])
@@ -255,7 +256,7 @@ func emergency_candidate() -> Dictionary:
 ## Why the emergency lateral cannot be signed now, or "".
 func emergency_blocked() -> String:
 	if frozen():
-		return "the account is in the red: hiring is frozen"
+		return "the account is below the overdraft limit (-%s): hiring is frozen" % money(-OVERDRAFT_LIMIT)
 	if emergency_week == week:
 		return "one emergency lateral a week, and this week's has signed"
 	return ""
@@ -1260,6 +1261,15 @@ func next_week() -> Array:
 	var pr := payroll()
 	income("City allocation, week %d" % week, allocation)
 	spend("Payroll, week %d" % week, pr)
+	# EA_TASKS P1.D2: 2% a week on whatever is still negative after the week's money. The
+	# forecast charges it the same way (forecast()), so the two agree week for week; the
+	# charge was documented in 1.D and never applied here, which is why the account never
+	# actually cost anything to run overdrawn.
+	if balance < 0:
+		var interest := int(ceil(-balance * OVERDRAFT_INTEREST))
+		if interest > 0:
+			spend("Interest on the overdraft, week %d" % week, interest)
+			lines.append("The council charges $%s of interest on the overdraft this week." % money(interest))
 	week += 1
 	for r in officers:
 		var due: bool = int(r["out_until"]) <= week
@@ -1325,7 +1335,10 @@ func next_week() -> Array:
 	if balance < 0:
 		deficit_weeks += 1
 		shift_morale(-3)
-		lines.append("The account is $%s in the red: hiring, training and new kit are frozen. The council has noticed (%d week%s in deficit)." % [money(-balance), deficit_weeks, "" if deficit_weeks == 1 else "s"])
+		if balance < OVERDRAFT_LIMIT:
+			lines.append("The account is $%s in the red, below the overdraft limit (-%s): hiring, training and new kit are frozen. The council has noticed (%d week%s in deficit)." % [money(-balance), money(-OVERDRAFT_LIMIT), deficit_weeks, "" if deficit_weeks == 1 else "s"])
+		else:
+			lines.append("The account is $%s in the red, inside the overdraft: interest is charged weekly and hiring, training and new kit stay open. The council has noticed (%d week%s in deficit)." % [money(-balance), deficit_weeks, "" if deficit_weeks == 1 else "s"])
 		note("Week %d: in deficit ($%s)." % [week, money(balance)])
 	# morale drifts home; very low morale costs people
 	if morale < morale_home:
@@ -1448,6 +1461,9 @@ func _fix_record(r: Dictionary) -> Dictionary:
 
 
 func from_data(d: Dictionary) -> bool:
+	# a save with no balance at all (an empty or an older file) starts from the tuning
+	# constant rather than from zero: P1.D5, Courses.reserve
+	balance = Courses.reserve
 	var ver := int(d.get("version", 0))
 	if ver < 1 or ver > VERSION:
 		return false

@@ -1345,8 +1345,12 @@ func play_consequence_short(key: String, text := {}, after := Callable(), force 
 
 
 ## EA_TASKS P1.G3: measure wall time of a full run at default settings on the slowest machine.
-	var _perf := {"frames": 0, "sim": 0, "view": 0, "steps": 0, "draws": 0, "wall_ms": 0}
-	var _run_start := 0
+## (Declared 2026-11-02: these two were indented into class scope by the edit that added them,
+## so they were read as locals of nothing and every later use was "Identifier not declared".
+## The script stopped compiling, ops_ui.gd with it, and the walk had no `go_title` to call.)
+var _perf := {"frames": 0, "sim": 0, "view": 0, "steps": 0, "draws": 0, "wall_ms": 0}
+var _run_start := 0
+
 
 func _start_run_timer() -> void:
 	_run_start = Time.get_ticks_usec()

@@ -251,12 +251,13 @@ What was built, against the plan:
 
 - **Exit:** cautious mean run score is above minimal and military-first over 20 seeds; cautious keeps the office in clearly more seeds than minimal.
 
-- **Status 2026-11-02: P1.F1 and P1.F2 built (P1.F3 not in the next ten); exit measured by
-  the next matrix.** P1.F1: every poll move logged with its cause and listed on the Ledger's
+- **Status 2026-11-02: P1.F1, P1.F2 and P1.F3 built; exit measured by the next matrix.** P1.F1: every poll move logged with its cause and listed on the Ledger's
   week page ("what moved the numbers this week"). P1.F2: decided — Kettering keeping a brutal
   chief stays, but the +60 for keeping office is now conditional on a clean record
-  (≤2 officers killed, ≤6 civilians killed, ≤6 force findings), otherwise +20. Static
-  validation only (no engine in the sandbox); engine runs are CI-only.
+  (≤2 officers killed, ≤6 civilians killed, ≤6 force findings), otherwise +20. P1.F3: election
+  night lists the run score as rows — what moved it, by how much and why — and the election
+  row names the clean-record test it passed or missed; `ops_ui_test` pins the row count, the
+  labels, and that the rows sum to the total. Engine runs are CI-only.
 
 ### Cycle 1.G — Rally pacing
 | ID | Task | Files | Size |
@@ -267,6 +268,17 @@ What was built, against the plan:
 
 - **Exit:** a quiet rally costs ≤ 60 s wall time at default settings.
 
+- **Status 2026-11-02: all three built; the exit awaits the P1.G3 measurement on the target
+  machine.** P1.G1: `Settings.DEFAULTS.adaptive_speed` is on, and the policy works both ways
+  — quiet runs at `QUIET_MULT` (3×, cap 8×) the speed asked for, contact returns to 1×, 1×
+  asked for stays 1×. P1.G2: `Pacing.QUIET_SKIP_AFTER` (60 simulated seconds) and
+  `Pacing.quiet_enough()` are the policy, `main.gd can_skip_report()` asks them, and the ops
+  screen's "Skip to the report" steps the rest of the operation headless from the same
+  seeded state (the old `quiet_timer` stepped only to t=40 and could never fire). P1.G3:
+  `op_test` prints a `TIMING` line (seconds per operation by situation type) and carries
+  `timing` in `--json`; `main.gd` prints `RUNCLOCK` under `--perf`. The numbers go in
+  `tests/results/cycle-1G/` when the full tier runs on the slowest machine.
+
 ### Cycle 1.H — Planning has to matter
 | ID | Task | Files | Size |
 |---|---|---|---|
@@ -274,12 +286,28 @@ What was built, against the plan:
 
 - **Exit:** the manual chief is ahead on the run score in ≥ 70% of seeds (a proposed threshold; set your own).
 
+- **Status 2026-11-02: the driver is built; the exit is a 20-seed run, and that is a
+  measurement, not a code change.** `tools/chief_compare.py --seeds 20 --first 1001` plays
+  `--chief=sensible` and `--chief=manual` on matched seeds, prints the pairs, and exits 0 only
+  if manual is ahead on the run score in ≥70% of them (ties are not wins). `op_test --json`
+  now carries `run_score` for any campaign, which is what made pairing possible. CI gained
+  `tier=chief` (shardable: `--first`, `--seeds`; joined with `--merge`), which commits the
+  report under `tests/results/`. Cost: ~21–34 min per 40-week run, so 20 seeds is 7–10
+  machine-hours in shards of 5.
+
 ### Cycle 1.I — Close the phase
 | ID | Task | Size |
 |---|---|---|
 | P1.I1 | Re-run determinism. Account for each changed case by a Phase 1 task ID, then `--write` and say so in the changelog. Move determinism back into the quick tier. | S |
 | P1.I2 | Switch `balance_bands.json` from report-only to asserting; the full balance run joins weekly CI. | S |
 | P1.I3 | Human playtest of a full 40-week run (you), with notes against the gate numbers. | M |
+
+- **Status 2026-11-02: P1.I1 and P1.I2 built; P1.I3 (yours) is open, and Gate 1 still needs
+  the full 20-seed matrix.** P1.I1: CI `tier=determinism` reruns every seeded case, annotates
+  each change, writes the fixture with `--write` and commits it, so a rebaseline is a visible
+  commit rather than a silent one. P1.I2: `tests/balance_bands.json` is `"enforce": true` — a
+  full matrix fails the tier on a missed band, the quick tier's two-week smoke is never
+  judged, and `--report-only` reproduces an experiment.
 
 **Gate 1:** all exits from 1.B to 1.H on the full 20-seed run; determinism rebaselined; bands asserting.
 
@@ -453,10 +481,12 @@ What was built, against the plan:
 
 | ID | Found in | Bug | Where to look | Phase |
 |---|---|---|---|---|
-| B1 | 0.A full tier | **Wolf brain backwards:** a lone fighter in an unseen fight spends 0.19 of it hidden with the wolf brain on vs 0.28 off (gate wants more). | `scripts/sim/brain.gd` (wolf), `tests/brains_test.gd --only=wolf --n=24 --v` | fix in Phase 1 (sim changes are rebaselined together in P1.I1) |
-| B2 | 0.A full tier | **Shield lets more through:** rounds reaching an officer facing 3 rifles at 10 m: 1.02 with the shield vs 0.69 without (gate wants fewer). | `world.gd` shield block / `_notice_shield_stop`, `equip_test.gd` shield case | Phase 1 |
+| B1 | 0.A full tier | **Wolf brain backwards:** a lone fighter in an unseen fight spends 0.19 of it hidden with the wolf brain on vs 0.28 off (gate wants more). **2026-11-02: fixed** — the wolf dwells in the cover it has (`WOLF_DWELL` 2.5 s) and only bounds where the route is itself hidden (`WOLF_MAX_EXPOSURE`, 1 of 4 samples) instead of re-planning every tick. Closes when `brains_test --only=wolf` clears on the full tier. | `scripts/sim/brain.gd` (wolf), `tests/brains_test.gd --only=wolf --n=24 --v` | Phase 1 |
+| B2 | 0.A full tier | **Shield lets more through:** rounds reaching an officer facing 3 rifles at 10 m: 1.02 with the shield vs 0.69 without (gate wants fewer). **2026-11-02: the gate was wrong, not the shield** — it counted rounds and so rewarded dying early (the unshielded officer was dead inside the first seconds and accrued less). It now measures the share of rounds arriving at his body that got through, with the shield's own stops in the denominator. | `world.gd` shield block / `_notice_shield_stop`, `equip_test.gd` shield case | Phase 1 |
 | B4 | CI runs 16a76a2 and 55032f9 (`arena/2e7808b8`) | **Intermittent `ui_walk` exit error:** once each on 4.4.1 and 4.7.2, the walk passed every check and then logged `ERROR: N resources still in use at exit`, which fails the suite. Not reproduced in 18 local runs (headless, rendered, and four at once on two cores with `--verbose`). Hypothesis: the game's static caches (`decals._tex`, `sound._cache`, `shorts._cache`, `city._cached`, `floor_plan._paper`, the crayon and UI fonts, `ThemeDB.fallback_font`) fill differently with runner speed during a live operation and are still held at shutdown. 2026-10-29: the walk now releases them before quitting. **Unproven** — watch the annotations; if it recurs, the annotation names the suite. **2026-10-29: recurred** once on 4.7.2 after the release (CI run 40868629763, commit e257aa0: `1 resources still in use at exit`, down from N), so at least one holder is left. `run_tests.sh` now runs the walk with `--verbose`, which makes Godot name each resource still in use, and the annotation includes those lines: the next recurrence names it. **It did, the same day** (CI 40884831856, 4.4.1): `Leaked instance: AudioStreamWAV … res://assets/sfx/amb_office.wav` and its `AudioStreamPlaybackWAV` — the office ambience was still playing when the walk freed the game, and the audio server released the playback on its own next mix, before or after the engine's count depending on the audio thread. The walk now stops every audio player and waits five frames before freeing. **Fix applied, cause named; closes when CI stays clean.** | `tests/ui_walk.gd` `_release_static_caches()` | Phase 0 follow-up |
-| B3 | 0.A full tier | **Beanbag slows the arrest:** 224 s to cuff a non-compliant unarmed man with beanbags vs 208 s without (gate wants less). | less-lethal-first order, `equip_test.gd` beanbag case | Phase 1 |
+| B3 | 0.A full tier | **Beanbag slows the arrest:** 224 s to cuff a non-compliant unarmed man with beanbags vs 208 s without (gate wants less). **2026-11-02: fixed** — a suspect a less-lethal round put on the floor can be cuffed where he lies (`world.cuffable`), the operation waits up to 30 s for it under police rules, and the arrest counts; before, the knockdown ended the operation with nobody arrested. | less-lethal-first order, `equip_test.gd` beanbag case | Phase 1 |
+
+| B5 | quick tier, 2026-11-02 (CI 41536220662) | **Weapons tight's gate is measuring a race, not the order:** police rounds at an armed man who is not attacking measure 0.81 without the order and 0.56 with it. `world._may_shoot` decides with `attacking()`; `incident.on_shot` records `att` when the round leaves, so a man who stops aiming in the interval is counted as "not attacking" and the residue cannot go to zero. The gate is now the 0.25 the measure resolves. **Proper fix (needs an engine):** record the decision-time verdict on the round — `on_shot` should take the verdict the officer acted on. | `world._may_shoot`, `incident.on_shot`, `tests/orders_test.gd t_tight` | Phase 1 follow-up |
 
 ## Order and overlap
 

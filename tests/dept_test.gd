@@ -262,6 +262,8 @@ func _applicants_and_statements() -> void:
 	var before: Array = d.applicants_now()
 	_check(not before.is_empty() and not d.choose_applicant(before[0]).is_empty(), "inside the overdraft the pool applies and can be hired")
 	d.balance = Department.OVERDRAFT_LIMIT - 1
+	# the hire above emptied this week's pool (the rest of it walked), so ask for a new week's
+	d.applicant_week = 0
 	before = d.applicants_now()
 	_check(not before.is_empty() and d.choose_applicant(before[0]).is_empty(), "below the overdraft limit the pool still applies, but nobody can be hired")
 	# Q3: the statement and testimony rolls, at their thresholds

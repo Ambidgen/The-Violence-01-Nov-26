@@ -71,6 +71,12 @@ const CONTRACTS := {
 		"desc": "A precision rifle and a 1-6x sight for the officer covering the windows."},
 	"battle": {"name": "Battle rifles", "items": ["battle_rifle"], "cost": 7000, "tier": 3, "tag": "military",
 		"desc": "7.62 through armour and through the wall behind it."},
+	# EA_TASKS P1.D4: a capital item, not a kit line — bought once, never carried. Its entry
+	# here is what puts it in the procurement draft and prices it; dept.capital records the
+	# purchase and the gang-raid rescue reads it. Declared 2026-11-02: `_sign` looked up
+	# CONTRACTS["arv"] and there was no such contract, so the ARV could not be bought at all.
+	"arv": {"name": "Armoured rescue vehicle", "items": [], "cost": 22000, "tier": 3, "tag": "military",
+		"desc": "An armoured truck and a crew for it. On a gang raid it carries the first officer downed out alive. Not carried in a kit: it waits at the kerb."},
 }
 const CONTRACT_EVERY := 4       # a procurement draft in week 1, 5, 9, ...
 const PROGRAM_FIRST := 2        # a program draft in week 2, 8, 14, ...
@@ -430,6 +436,10 @@ func contract_tier_ok(cid: String, week: int) -> bool:
 func contract_stocked(cid: String) -> bool:
 	if not CONTRACTS.has(cid):
 		return false
+	# a capital contract carries no kit: it is bought once and `contracts` is the record,
+	# so it is never "already stocked" (which would keep it out of every draft for good)
+	if Equipment.CAPITAL.has(cid):
+		return false
 	for it in CONTRACTS[cid]["items"]:
 		if not armory.has(it):
 			return false
@@ -782,7 +792,11 @@ func _sign(c, cid: String, bought: bool) -> Array:
 		c.dept.capital[cid] = true
 		if cid == "arv":
 			lines.append("The armoured rescue vehicle is in service: on a gang raid it carries the first officer downed out alive.")
-	lines.append("%s %s: %s in the armoury." % [ct["name"], "contract signed" if bought else "arrive", ", ".join(ct["items"].map(func(i): return item_name(i)))])
+	var delivered := ", ".join(ct["items"].map(func(i): return item_name(i)))
+	if delivered == "":
+		lines.append("%s %s." % [ct["name"], "contract signed" if bought else "arrives"])
+	else:
+		lines.append("%s %s: %s in the armoury." % [ct["name"], "contract signed" if bought else "arrive", delivered])
 	_log(c.week(), "Armoury: %s." % ct["name"])
 	_tag(c, String(ct["tag"]), lines)
 	return lines

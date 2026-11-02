@@ -14,6 +14,28 @@ var problems := 0
 var _low_leaks := 0
 
 
+## The first place two JSON documents differ, so a failing save round trip names its own
+## key instead of printing two walls of numbers the annotation would truncate anyway.
+func _json_diff(a: String, b: String) -> String:
+	if a == b:
+		return "nothing"
+	var da = JSON.parse_string(a)
+	var db = JSON.parse_string(b)
+	if not (da is Dictionary) or not (db is Dictionary):
+		return "not an object"
+	for k in da:
+		if not db.has(k):
+			return "'%s' missing" % k
+		var va := JSON.stringify(da[k])
+		var vb := JSON.stringify(db[k])
+		if va != vb:
+			return "'%s' %s vs %s" % [k, va.substr(0, 60), vb.substr(0, 60)]
+	for k2 in db:
+		if not da.has(k2):
+			return "extra '%s'" % k2
+	return "order"
+
+
 func _check(ok: bool, what: String) -> void:
 	print("  %s  %s" % ["ok  " if ok else "FAIL", what])
 	if not ok:
@@ -142,7 +164,7 @@ func _init() -> void:
 	var c5 = Campaign.new()
 	c5.from_data(JSON.parse_string(j))
 	var j5 := JSON.stringify(c5.to_data())
-	_check(j5 == j, "the campaign, politics included, survives a save")
+	_check(j5 == j, "the campaign, politics included, survives a save (differs at: %s)" % _json_diff(j, j5))
 	# Q3: a cleared case leaks by the officer's integrity, not just its evidence
 	_check(Politics.leak_p("video", 60) > Politics.leak_p("witness", 60), "video still leaks more than witnesses at the same name")
 	_check(Politics.leak_p("video", 10) > Politics.leak_p("video", 95), "integrity 10 leaks (%.2f) more than integrity 95 (%.2f)" % [Politics.leak_p("video", 10), Politics.leak_p("video", 95)])
@@ -183,7 +205,8 @@ func _init() -> void:
 	var jg := JSON.stringify(cg.politics.to_data())
 	var pg = Politics.new()
 	pg.from_data(JSON.parse_string(jg), 17)
-	_check(JSON.stringify(pg.to_data()) == jg and pg.last_grant == 1, "the grant week survives a save")
+	_check(JSON.stringify(pg.to_data()) == jg and pg.last_grant == 1,
+		"the grant week survives a save (differs at: %s)" % _json_diff(jg, JSON.stringify(pg.to_data())))
 	# Q10: chatter priced in the briefing, and the suggestion sized by it
 	var sit: Dictionary = Situations.make("event", 4242, 1, 0)
 	var ch: Dictionary = Situations.chatter(sit)
@@ -305,7 +328,7 @@ func _causes_e1_f1() -> void:
 	p._ally("union", 5, dept, tmp, "a test decision")
 	p._poll("pell", 2.0, "a test decision")
 	var cl: Array = p.week_causes(1)
-	_check(cl.any(func(l): return String(l).contains("Union") and String(l).contains("+5") and String(l).contains("test decision")),
+	_check(cl.any(func(l): return String(l).contains(p.ally_name("union")) and String(l).contains("+5") and String(l).contains("test decision")),
 		"an ally gain is logged with its cause: %s" % str(cl))
 	_check(cl.any(func(l): return String(l).contains("Pell") and String(l).contains("+2.0")), "and so is a poll gain")
 	p.week_end(1, [], dept)

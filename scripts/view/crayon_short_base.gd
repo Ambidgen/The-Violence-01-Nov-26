@@ -121,11 +121,16 @@ func _txt(
 ) -> void:
 	if text.is_empty() or reveal <= 0.0:
 		return
-	var lines := (
-		_wrap_lines(text, size, max_width)
-		if max_width > 0.0
-		else text.to_upper().split("\n", false)
-	)
+	# Declared, not inferred: the two arms of the ternary below are an Array[String] and a
+	# PackedStringArray, so `:=` infers Variant and 4.7 treats that as an error — which is
+	# why no short could be constructed and crayon_shorts_test could not load its scenes
+	# (2026-11-02). Both arms are turned into the same Array[String] here.
+	var lines: Array[String] = []
+	if max_width > 0.0:
+		lines = _wrap_lines(text, size, max_width)
+	else:
+		for part in text.to_upper().split("\n", false):
+			lines.append(String(part))
 	var current_y := at.y
 	for line_text in lines:
 		var fitted := size
