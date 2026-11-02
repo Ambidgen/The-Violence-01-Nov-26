@@ -1388,11 +1388,11 @@ func _cohort(r: Dictionary) -> void:
 func _applicants() -> void:
 	var d = main.campaign.dept
 	var pool: Array = d.applicants_now()
-	_text(
+_text(
 		box,
 		(
 			"APPLICANTS  ·  week %d%s"
-			% [d.week, "  (hiring frozen: the account is in the red)" if d.frozen() else ""]
+			% [d.week, "  (overdraft: -$%s/%s)" % [Department.money(-d.OVERDRAFT_LIMIT), Department.money(balance)] if d.frozen() and balance <= d.OVERDRAFT_LIMIT else ("  (hiring frozen: the account is in the red)" if d.frozen() else ""]
 		),
 		INK,
 		12
@@ -1466,11 +1466,22 @@ func _applicants() -> void:
 		)
 		var h := _h(v)
 		var rec: Dictionary = r
+		var fc := main.campaign.dept.forecast_after("hire")
+		var worst_week := ""
+		var worst_deficit := 0
+		for row in fc:
+			if int(row["balance"]) < 0 and (worst_deficit == 0 or int(row["week"]) < worst_week):
+				worst_deficit = int(row["balance"])
+				worst_week = int(row["week"])
+		var deficit_text := ""
+		if worst_week > 0 and worst_deficit < 0:
+			deficit_text := (" week %d goes to -$%s" % [worst_week, Department.money(-worst_deficit)])
+		hb.tooltip_text = deficit_text
 		var hb := _btn(
 			h,
 			(
-				"Hire  ($%s now, payroll +$%s a week)"
-				% [Department.money(Department.applicant_cost(r)), Department.money(Courses.pay(r))]
+				"Hire  ($%s now, payroll +$%s a week)%s"
+				% [Department.money(Department.applicant_cost(r)), Department.money(Courses.pay(r)), deficit_text]
 			),
 			func(): _hire_applicant(rec)
 		)

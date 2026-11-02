@@ -1211,8 +1211,24 @@ func _adaptive_trigger(reason: String) -> void:
 	adaptive_slow_until = maxf(adaptive_slow_until, world.t + Pacing.hold_seconds(reason))
 
 
-## Inspect only newly produced records, after every simulation step. A contact can
-## therefore stop a fast-forward burst in the same rendered frame.
+## EA_TASKS P1.G2: "Skip to the report" after 60 s of quiet.
+## the sim keeps stepping headless to the end (still deterministic), then the debrief opens.
+var quiet_timer := 0
+
+func _check_quiet_timer() -> void:
+	if not op_mode or world == null:
+		return
+	if effective_speed() == 1.0:
+		quiet_timer += 1
+	else:
+		quiet_timer = 0
+	if quiet_timer >= 60:
+		# fast-forward to the end deterministically
+		while not world.over and world.t < 40 do:
+			world.step()
+		_briefing_open := true
+		quiet_timer = 0
+
 func _adaptive_after_step() -> void:
 	if not op_mode or world == null or not bool(Settings.get_v("adaptive_speed")) or speed <= 1.0:
 		return
@@ -1298,7 +1314,12 @@ func play_consequence_short(key: String, text := {}, after := Callable(), force 
 	return play_short(key, text, after)
 
 
-var _perf := {"frames": 0, "sim": 0, "view": 0, "steps": 0, "draws": 0}
+## EA_TASKS P1.G3: measure wall time of a full run at default settings on the slowest machine.
+	var _perf := {"frames": 0, "sim": 0, "view": 0, "steps": 0, "draws": 0, "wall_ms": 0}
+	var _run_start := 0
+
+func _start_run_timer() -> void:
+	_run_start = Time.get_ticks_usec()
 var _pf0 := 0
 var _sim_us := 0
 

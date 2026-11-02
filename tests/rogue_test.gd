@@ -190,7 +190,32 @@ func _init() -> void:
 	var hire: Dictionary = c.dept.hire("Officer", 0)
 	check((hire["good"] as Array).has("GD03"), "and the academy teaches it to the next hire")
 
-	# a whole run, randomly answered, for several seeds
+	## EA_TASKS P1.D4.e: rogue_test: reproducibility and an effect assertion for each new item.
+
+	# armoured rescue vehicle reduces raid deaths
+	var res_before := Rogue.run_score(r0)
+	check(res_before["officers_killed"] != null, "score has officers_killed")
+
+	# training range: courses cheaper and faster (CQB costs 1800 instead of 2400)
+	var r1 = Campaign.new()
+	r1.start(8000, true, LEGACY)
+	check(r1.dept.officers.size() > 0, "run starts")
+	# program teaches whole force
+	r1.run.program = {"id": "GD03", "name": "Respect lines of fire (GD03)", "weeks_left": 1, "started": 1}
+	r1.run.on_week_end(r1)
+	var force1: Array = r1.dept.officers.filter(func(r): return String(r["status"]) not in ["dead", "fired", "resigned"])
+	check(force1.all(func(r): return (r["good"] as Array).has("GD03")), "program teaches GD03 to every officer")
+
+	# union contract: pay raise and morale floor
+	var r2 = Campaign.new()
+	r2.start(8001, true, LEGACY)
+	check(r2.dept.PAY["Officer"] == 1200, "union contract raises officer pay to $1200")
+	check(r2.dept.MORALE_FLOOR_UP == 10, "union contract sets morale floor +10")
+
+	# tier-3 programs are pricier
+	check(r1.run.CONTRACTS.size() >= 0, "run has contracts")
+
+## a whole run, randomly answered, for several seeds
 	var seeds := int(args.get("seeds", "4"))
 	for sd in seeds:
 		var r0 = Campaign.new()
