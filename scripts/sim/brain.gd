@@ -3192,15 +3192,20 @@ func _task_hold(o) -> void:
 			o.stance_goal = Op.STAND
 
 
-## Progress watchdog for operators who should be closing on a point: true once they have
-## gained less than 0.4 m on it for 8 s (blocked, unreachable, or circling), so the
-## caller can give the point up.
+## Progress watchdog for operators who should be closing on a point. Measure the
+## remaining route when there is one: a valid path around a long wall can initially
+## take the squad farther from its objective for much longer than eight seconds.
 func _stuck_on(o, p: Vector2) -> bool:
 	var key := p.snapped(Vector2(0.5, 0.5))
+	var routed: bool = not o.path.is_empty() and o.path_i < o.path.size() and o.goal.distance_to(p) <= 0.4
 	var d: float = o.pos.distance_to(p)
+	if routed:
+		d = o.pos.distance_to(o.path[o.path_i])
+		for i in range(o.path_i + 1, o.path.size()):
+			d += o.path[i - 1].distance_to(o.path[i])
 	var g: Dictionary = o.ticker.get("prog", {})
-	if g.get("key", Vector2.INF) != key:
-		o.ticker["prog"] = {"key": key, "best": d, "t": w.t}
+	if g.get("key", Vector2.INF) != key or g.get("routed", false) != routed:
+		o.ticker["prog"] = {"key": key, "best": d, "t": w.t, "routed": routed}
 		return false
 	if d < g["best"] - 0.4:
 		g["best"] = d
@@ -3240,12 +3245,13 @@ func _task_hunt(o, tm: Dictionary, el: Dictionary) -> void:
 		el["hunt_done_t"] = w.t
 	o.dbg = "hunting"
 	if k > 0:
-		# followers take wedge slots behind the leader's objective: 1.5 m apart with GD07,
-		# bunched at 0.6 m without it; recomputed only when the objective moves
-		var key := str((target as Vector2).snapped(Vector2(1, 1)))
+		# A slot depends on the leader, rank in the live squad and spacing habit as
+		# well as the objective. Otherwise a casualty leaves followers using the
+		# old leader's overlapping slots until the objective changes.
+		var lead = al[0]
+		var key := "hunt|%s|%d|%s|%s" % [lead.id, k, str(o.has("GD07")), str((target as Vector2).snapped(Vector2(1, 1)))]
 		if o.ticker.get("form_key", "") != key:
 			o.ticker["form_key"] = key
-			var lead = al[0]
 			var to_t: Vector2 = target - lead.pos
 			var dir: Vector2 = to_t.normalized() if to_t.length() > 0.5 else Vector2.from_angle(lead.body_dir)
 			var sp := 1.5 if o.has("GD07") else 0.6
@@ -3422,7 +3428,7 @@ func _task_sweep(o, el: Dictionary) -> void:
 	o.dbg = "sweeping"
 	var target: Vector2 = tg
 	if k > 0:
-		var key := str(target.snapped(Vector2(1, 1)))
+		var key := "sweep|%s|%d|%s|%s" % [lead.id, k, str(o.has("GD07")), str(target.snapped(Vector2(1, 1)))]
 		if o.ticker.get("form_key", "") != key:
 			o.ticker["form_key"] = key
 			var to_t: Vector2 = target - lead.pos
@@ -3781,7 +3787,7 @@ func _task_transit(o, el: Dictionary) -> void:
 	if lead.pos.distance_to(o.pos) < gap and lead.pos.distance_to(dest) > 2.5:
 		w.stop(o)
 		return
-	var key := str(dest.snapped(Vector2(1, 1)))
+	var key := "transit|%s|%d|%d|%s" % [lead.id, k, al.size(), str(dest.snapped(Vector2(1, 1)))]
 	if o.ticker.get("form_key", "") != key:
 		o.ticker["form_key"] = key
 		var off := Vector2.from_angle(TAU * k / maxf(1.0, al.size())) * 1.3

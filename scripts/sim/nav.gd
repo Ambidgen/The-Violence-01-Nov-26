@@ -10,6 +10,7 @@ extends RefCounted
 const Geom = preload("res://scripts/sim/geom.gd")
 const CS := 0.25            # cell size, metres
 const RADIUS := 0.30        # body radius + margin
+const PATH_CLEARANCE := Geom.MOVE_CLEARANCE # same swept body as the movement integrator
 
 static var _cache := {}     # map id -> layers and grids, shared between World instances
 
@@ -204,7 +205,9 @@ func _flood() -> void:
 		cid += 1
 	reach.resize(n)
 	for i in n:
-		reach[i] = 1 if comp[i] == best_id else 0
+		# With no free cells best_id remains -1, as do all unvisited solid
+		# cells. They are not a connected region.
+		reach[i] = 1 if best_id >= 0 and comp[i] == best_id else 0
 
 
 func cell_of(p: Vector2) -> Vector2i:
@@ -215,18 +218,31 @@ func cell_centre(c: Vector2i) -> Vector2:
 	return Vector2((c.x + 0.5) * CS, (c.y + 0.5) * CS)
 
 
-## Free and in the main connected region.
+## A cell's centre is clear, but an arbitrary point in that cell can still put a
+## shoulder through a wall. Also do not let cell_of()'s clamping make off-map points
+## look walkable.
+func _in_bounds(p: Vector2) -> bool:
+	return nx > 0 and ny > 0 and p.is_finite() and p.x >= 0.0 and p.y >= 0.0 and p.x < level.W and p.y < level.H
+
+
+## Free and in the main connected region, with clearance for the actual point.
 func reachable(p: Vector2) -> bool:
+	if not _in_bounds(p):
+		return false
 	var c := cell_of(p)
-	return reach[c.y * nx + c.x] == 1
+	return reach[c.y * nx + c.x] == 1 and not geom.blocked_disc(p, RADIUS)
 
 
 func is_free(p: Vector2) -> bool:
+	if not _in_bounds(p):
+		return false
 	var c := cell_of(p)
-	return solid[c.y * nx + c.x] == 0
+	return solid[c.y * nx + c.x] == 0 and not geom.blocked_disc(p, RADIUS)
 
 
 func nearest_free(p: Vector2) -> Vector2i:
+	if nx <= 0 or ny <= 0 or reach.is_empty() or not p.is_finite():
+		return Vector2i(-1, -1)
 	var c := cell_of(p)
 	if reach[c.y * nx + c.x] == 1:
 		return c
@@ -247,14 +263,56 @@ func nearest_free(p: Vector2) -> Vector2i:
 						best = q
 		if best.x >= 0:
 			return best
-	return c
+	# Large pieces of furniture and off-map destinations can be more than 2.75 m
+	# from floor. Never return the original solid cell to AStar as if it were free.
+	var best := Vector2i(-1, -1)
+	var bd := INF
+	for y in ny:
+		for x in nx:
+			if reach[y * nx + x] == 1:
+				var q := Vector2i(x, y)
+				var d := cell_centre(q).distance_squared_to(p)
+				if d < bd:
+					bd = d
+					best = q
+	return best
 
 
 func snap(p: Vector2) -> Vector2:
-	var c := cell_of(p)
-	if reach[c.y * nx + c.x] == 1:
+	if reachable(p):
 		return p
-	return cell_centre(nearest_free(p))
+	var c := nearest_free(p)
+	# No walkable floor: callers can keep their original point, and find_path()
+	# reports failure rather than inventing a position outside the map.
+	return cell_centre(c) if c.x >= 0 else p
+
+
+## A displaced actor may be clear but just outside the lattice. Its nearest free
+## centre can be across a corner or wall; search nearby centres it can actually
+## reach before declaring the actor stuck. Do not teleport a disconnected start.
+func _start_cell(p: Vector2) -> Vector2i:
+	var first := nearest_free(p)
+	if first.x < 0 or geom.move_clear(p, cell_centre(first), PATH_CLEARANCE):
+		return first
+	var c := cell_of(p)
+	for r in range(1, 12):
+		var best := Vector2i(-1, -1)
+		var bd := INF
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if absi(dx) != r and absi(dy) != r:
+					continue
+				var q := c + Vector2i(dx, dy)
+				if q.x < 0 or q.y < 0 or q.x >= nx or q.y >= ny or reach[q.y * nx + q.x] != 1:
+					continue
+				var centre := cell_centre(q)
+				var d := centre.distance_squared_to(p)
+				if d < bd and geom.move_clear(p, centre, PATH_CLEARANCE):
+					best = q
+					bd = d
+		if best.x >= 0:
+			return best
+	return Vector2i(-1, -1)
 
 
 func weight_at(prof: int, p: Vector2) -> float:
@@ -365,21 +423,45 @@ func find_path(prof: int, a: Vector2, b: Vector2, avoid := "") -> PackedVector2A
 
 
 func _find_path(prof: int, a: Vector2, b: Vector2, grid: AStarGrid2D = null) -> PackedVector2Array:
-	# 4.72: grids may be empty if build() failed or map missing; fall back to direct line
-	if grids.is_empty():
-		return PackedVector2Array([a, b])
+	# No lattice is not evidence that a direct line is safe.
+	if grids.is_empty() or not a.is_finite() or not b.is_finite():
+		return PackedVector2Array()
 	var g: AStarGrid2D = grid if grid != null else grids[clampi(prof, 0, 3)]
-	var ca := nearest_free(a)
+	# A source just outside the lattice's clearance may walk back to a reachable
+	# cell. One inside a wall, off-map, or isolated behind a wall must not be
+	# silently teleported into the main region.
+	if geom.blocked_disc(a, 0.01):
+		return PackedVector2Array()
+	var ca := _start_cell(a)
 	var cb := nearest_free(b)
+	if ca.x < 0 or cb.x < 0:
+		return PackedVector2Array()
+	var start := cell_centre(ca)
+	var finish := cell_centre(cb)
 	var ids: Array[Vector2i] = g.get_id_path(ca, cb)
-	var pts := PackedVector2Array()
 	if ids.is_empty():
-		return pts
-	pts.append(a if is_free(a) else cell_centre(ca))
-	for k in range(1, ids.size() - 1):
+		return PackedVector2Array()
+	var pts := PackedVector2Array([a])
+	if not a.is_equal_approx(start):
+		pts.append(start)
+	for k in range(1, ids.size()):
 		pts.append(cell_centre(ids[k]))
-	pts.append(b if is_free(b) else cell_centre(cb))
-	return _smooth(prof, pts)
+	# A cell can be free yet belong to a disconnected pocket. Only use the
+	# requested endpoint when the point itself is safe AND in the main region.
+	if reachable(b) and geom.move_clear(finish, b, PATH_CLEARANCE):
+		if not pts[pts.size() - 1].is_equal_approx(b):
+			pts.append(b)
+	elif not pts[pts.size() - 1].is_equal_approx(finish):
+		pts.append(finish)
+	if pts.size() == 1:
+		pts.append(pts[0])
+	var out := _smooth(prof, pts)
+	# Even adjacent lattice points and the two endpoint legs need validation;
+	# _smooth() cannot shorten them any further if they are not clear.
+	for k in range(1, out.size()):
+		if not geom.move_clear(out[k - 1], out[k], PATH_CLEARANCE):
+			return PackedVector2Array()
+	return out
 
 
 func _smooth(prof: int, pts: PackedVector2Array) -> PackedVector2Array:
@@ -424,11 +506,9 @@ func line_ok(prof: int, a: Vector2, b: Vector2) -> bool:
 			return false
 		if (prof != 0 or not _mask.is_empty()) and _w(prof, i) > w0 + 0.01:
 			return false
-	# Sampling one point per 0.25 m cell was not enough (v1.2.1): a leg could cross the
-	# corner of a blocked cell between two samples and put the body through a door jamb or
-	# a wall corner — up to 12 cm of it on the shipped maps. The segment is now tested
-	# against the obstacles themselves, at the body's radius.
-	return geom.path_clear_leg(a, b, RADIUS)
+	# Use the same swept clearance as the movement integrator. In particular, a
+	# replan from just outside a jamb must not smooth a leg the actor cannot follow.
+	return geom.move_clear(a, b, PATH_CLEARANCE)
 
 
 func path_length(pts: PackedVector2Array) -> float:

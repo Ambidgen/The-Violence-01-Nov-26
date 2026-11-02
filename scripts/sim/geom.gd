@@ -15,6 +15,9 @@ enum {WALL, COVER, CONCEAL, WINDOW, LOW}
 const LOW_COVER_H := 1.3
 const LOW_NEAR := 0.4
 const LOW_FULL := 3.0
+# Swept-body radius used by both movement and path validation. The navigation
+# lattice is inflated by 0.30 m, leaving 2 cm of slack for its cell centres.
+const MOVE_CLEARANCE := 0.28
 
 var obs: Array = []        # [{r: Rect2, kind, h, sill, lintel, move: bool, name}]
 var width := 0.0
@@ -157,10 +160,60 @@ func path_clear(a: Vector2, b: Vector2, rad := 0.30) -> bool:
 	return true
 
 
+## A swept movement or path leg, including separation and sidesteps. The destination
+## may not reduce a body's existing clearance: a group pressing against a wall must not
+## push someone through it. A body already overlapping an obstacle can move out, but not
+## farther in. Door leaves are checked separately by the world.
+func move_clear(a: Vector2, b: Vector2, rad := MOVE_CLEARANCE) -> bool:
+	if not a.is_finite() or not b.is_finite():
+		return false
+	# Allow recovery from an existing edge overlap, but not a move farther off-map.
+	if b.x < minf(a.x, rad) or b.y < minf(a.y, rad) \
+		or b.x > maxf(a.x, width - rad) or b.y > maxf(a.y, height - rad):
+		return false
+	for idx in candidates(a, b, 1):
+		if _mv[idx] == 0:
+			continue
+		var r: Rect2 = _rect[idx]
+		var d0 := _rect_dist(a, r)
+		var d1 := _rect_dist(b, r)
+		if d0 < 0.00001:
+			# A spawn or old save may start inside an obstacle. Check the initial
+			# direction as well as the endpoint: a long step can otherwise cross a
+			# thin wall and end less deeply embedded on its far side.
+			var depth0 := _rect_depth(a, r)
+			var depth1 := _rect_depth(b, r)
+			var left := a.x - r.position.x
+			var right := r.end.x - a.x
+			var top := a.y - r.position.y
+			var bottom := r.end.y - a.y
+			var nearest := minf(minf(left, right), minf(top, bottom))
+			var delta := b - a
+			var outward := (left <= nearest + 0.00001 and delta.x < -0.00001) \
+				or (right <= nearest + 0.00001 and delta.x > 0.00001) \
+				or (top <= nearest + 0.00001 and delta.y < -0.00001) \
+				or (bottom <= nearest + 0.00001 and delta.y > 0.00001)
+			if not outward or depth1 >= depth0 - 0.00001:
+				return false
+		elif d0 < rad:
+			if d1 < d0 - 0.00001 or seg_rect_dist(a, b, r) < d0 - 0.00001:
+				return false
+		elif seg_rect_dist(a, b, r) < rad:
+			return false
+	return true
+
+
+## Positive inside a rectangle, zero on the edge, negative outside it.
+static func _rect_depth(p: Vector2, r: Rect2) -> float:
+	if not r.has_point(p):
+		return -_rect_dist(p, r)
+	return minf(minf(p.x - r.position.x, r.end.x - p.x), minf(p.y - r.position.y, r.end.y - p.y))
+
+
 ## The same for one leg of a path: it may hug whatever it already touches at either end,
 ## so the radius shrinks to the clearance of the nearer end. A path that starts with a
 ## shoulder against a wall is still smoothed away from it, but nothing that would take the
-## body deeper in is allowed. This is what the navigator's smoothing asks.
+## body deeper in is allowed. Actual movement and path validation use move_clear instead.
 func path_clear_leg(a: Vector2, b: Vector2, rad := 0.30) -> bool:
 	if a.distance_squared_to(b) < 0.0004:
 		return true

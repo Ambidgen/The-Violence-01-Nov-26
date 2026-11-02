@@ -690,14 +690,12 @@ func _find_buildings() -> void:
 func snap_posts(nav) -> void:
 	for k in spawns:
 		var p: Vector2 = spawns[k]["p"]
-		var c: Vector2i = nav.cell_of(p)
-		if nav.reach[c.y * nav.nx + c.x] != 1:
-			spawns[k]["p"] = nav.cell_centre(nav.nearest_free(p))
+		if not nav.reachable(p):
+			spawns[k]["p"] = nav.snap(p)
 	for i in patrol.size():
 		var q: Vector2 = patrol[i]
-		var cq: Vector2i = nav.cell_of(q)
-		if nav.reach[cq.y * nav.nx + cq.x] != 1:
-			patrol[i] = nav.cell_centre(nav.nearest_free(q))
+		if not nav.reachable(q):
+			patrol[i] = nav.snap(q)
 
 
 func _posts() -> void:

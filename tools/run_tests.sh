@@ -100,6 +100,7 @@ _check.gd|check|300|exit|
 godot472_test.gd|quick|300|exit|
 city_integration_test.gd|quick|300|exit|
 character_assets_test.gd|quick|300|exit|
+group_movement_test.gd|quick|300|exit|
 test_range_mechanics_test.gd|quick|300|exit|
 test_range_regression_test.gd|quick|300|exit|
 test_range_replays_test.gd|quick|600|exit|
@@ -174,7 +175,7 @@ while IFS='|' read -r name tier budget detect args; do
 	if [ "$TIER" = "range" ]; then
 		# Deliberately exclude campaign scenarios and campaign determinism cases.
 		case "$name" in
-			_check.gd|test_range_mechanics_test.gd|test_range_regression_test.gd|test_range_replays_test.gd|test_range_determinism_test.gd|habits_test.gd|maps_test.gd|nav_door_test.gd)
+			_check.gd|group_movement_test.gd|test_range_mechanics_test.gd|test_range_regression_test.gd|test_range_replays_test.gd|test_range_determinism_test.gd|habits_test.gd|maps_test.gd|nav_door_test.gd)
 				selected+=("$name|$tier|$budget|$detect|$args") ;;
 		esac
 	elif want "$tier"; then

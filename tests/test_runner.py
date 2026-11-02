@@ -61,6 +61,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("test_range_regression_test", proc.stdout)
         self.assertIn("test_range_replays_test", proc.stdout)
         self.assertIn("test_range_determinism_test", proc.stdout)
+        self.assertIn("group_movement_test", proc.stdout)
         self.assertIn("habits_test", proc.stdout)
         self.assertNotRegex(proc.stdout, r"(?m)^\s*PASS\s+determinism_test\s")
         self.assertNotIn("orders_test", proc.stdout)
