@@ -45,7 +45,7 @@ func _init() -> void:
 		print("%-13s %-42s %7.2f  %7.2f   %s" % [tn, spec["measure"], a, b, "PASS" if ok else "FAIL"])
 		if args.has("v"):
 			print("    with: %s\n    without: %s" % [str(with_v), str(without_v)])
-	print("%d of %d orders change the outcome (%d runs each way, 32 for arrest, %d s)" % [passed, tests.size(), n, (Time.get_ticks_msec() - t0) / 1000])
+	print("%d of %d orders change the outcome (%d runs each way; at least 16 for tight/less, 32 for arrest; %d s)" % [passed, tests.size(), n, (Time.get_ticks_msec() - t0) / 1000])
 	quit(1 if passed < tests.size() else 0)
 
 
@@ -62,7 +62,7 @@ const GATES := {
 	"phase": {"measure": "s to the first officer inside (later)", "dir": 1, "margin": 20.0},
 	"entry": {"measure": "first room entered is the kitchen (share)", "dir": 1, "margin": 0.5},
 	"pace": {"measure": "top speed out of a fight, m/s (lower)", "dir": -1, "margin": 0.3},
-	"tight": {"measure": "police rounds at an armed man not attacking", "dir": -1, "margin": 0.5},
+	"tight": {"measure": "police rounds at an armed man not attacking", "dir": -1, "margin": 0.5, "n_min": 16},
 	"less": {"measure": "police rounds at an armed man not attacking", "dir": -1, "margin": 0.25, "n_min": 16},
 	"knock": {"measure": "civilians with hands up at first entry", "dir": 1, "margin": 0.5},
 	"pistols": {"measure": "rifle rounds fired by police (fewer)", "dir": -1, "margin": 1.5},
@@ -293,8 +293,11 @@ func t_pace(on: bool, sd: int) -> float:
 
 
 func t_tight(on: bool, sd: int) -> float:
-	# a man with a rifle slung, not expecting anyone: armed, but not attacking
-	var sit := _sit("gang", sd, [{"role": "suspect", "ech": "untrained", "room": "LIVING", "arms": "rifle", "alert": 0}])
+	# A man with a rifle slung, not expecting anyone: armed, but not attacking.
+	# The bedroom gives the squad enough close encounters to exercise the order;
+	# with the new movement routes, the living-room seeds often surrender or
+	# attack before an officer has an opportunity to fire under either policy.
+	var sit := _sit("gang", sd, [{"role": "suspect", "ech": "untrained", "room": "BED2", "arms": "rifle", "alert": 0}])
 	var extra := {"tight": true} if on else {}
 	var w = _run(4, sit, {"squads": [_sq(_officers(4), _od([{"kind": "clear", "rooms": []}], extra))]}, 180.0)
 	var pre := 0

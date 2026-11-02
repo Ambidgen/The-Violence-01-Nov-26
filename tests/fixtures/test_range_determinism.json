@@ -1,69 +1,69 @@
 {
   "cases": {
     "cover_repro": {
-      "digest": "c2c2fc48c7afe295",
-      "hits": 14,
-      "shots": 258,
-      "time": 183.067,
+      "digest": "6d8ee792145709ea",
+      "hits": 15,
+      "shots": 237,
+      "time": 126.9,
       "timeout": false,
-      "winner": 0
+      "winner": 1
     },
     "lane_repro": {
-      "digest": "10ceef8799d4b279",
+      "digest": "5c2d6a42960f92f2",
       "hits": 16,
-      "shots": 60,
-      "time": 63.2,
+      "shots": 66,
+      "time": 24.133,
       "timeout": false,
       "winner": 0
     },
     "large_team": {
-      "digest": "665f9ffaab786b72",
-      "hits": 17,
-      "shots": 127,
-      "time": 44.833,
+      "digest": "8aa314044ef9a47c",
+      "hits": 22,
+      "shots": 67,
+      "time": 51.3,
       "timeout": false,
       "winner": 0
     },
     "militia_patrol": {
-      "digest": "257d05c80be3bdd9",
-      "hits": 4,
-      "shots": 9,
-      "time": 26.0,
+      "digest": "2bdcd3bcafee0f8f",
+      "hits": 7,
+      "shots": 17,
+      "time": 26.867,
       "timeout": false,
       "winner": 1
     },
     "motel": {
-      "digest": "a20d8d669016bbf0",
-      "hits": 25,
-      "shots": 166,
-      "time": 47.733,
+      "digest": "6cec330f47637bde",
+      "hits": 17,
+      "shots": 67,
+      "time": 128.9,
       "timeout": false,
       "winner": 0
     },
     "shield": {
-      "digest": "2ab7c6b0fea2cada",
-      "hits": 11,
-      "shots": 79,
-      "time": 68.267,
+      "digest": "5d548d7082725000",
+      "hits": 12,
+      "shots": 123,
+      "time": 100.633,
       "timeout": false,
       "winner": 0
     },
     "sof_control": {
-      "digest": "b73bdac0ee2380e9",
-      "hits": 6,
-      "shots": 11,
-      "time": 60.167,
+      "digest": "74ddc92a0310d005",
+      "hits": 10,
+      "shots": 18,
+      "time": 68.167,
       "timeout": false,
       "winner": 0
     },
     "unequal": {
-      "digest": "69cdcf73e9aa5c93",
-      "hits": 10,
-      "shots": 20,
-      "time": 39.267,
+      "digest": "83e5d764a8c5bc44",
+      "hits": 8,
+      "shots": 17,
+      "time": 46.667,
       "timeout": false,
-      "winner": 1
+      "winner": 0
     }
   },
-  "model": "test-range-2026-10-27-post-fix"
+  "model": "test-range-2026-11-02-group-movement"
 }

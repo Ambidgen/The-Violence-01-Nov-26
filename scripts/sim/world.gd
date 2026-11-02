@@ -2263,7 +2263,10 @@ func move_to(o, p: Vector2, mode: String, prof := -1, free := false) -> void:
 	var ak: String = "" if free else o.avoid_key
 	var need: bool = o.path.is_empty() or o.goal.distance_to(p) > 0.4 or stuck or o.ticker.get("prof", -1) != prof \
 		or o.ticker.get("ak", "") != ak
-	if need and o.path.is_empty() and o.goal.distance_to(p) <= 0.4 and t < o.ticker.get("path_fail_until", -1.0):
+	# A failed search is cooled down only for the same request. A change of
+	# routing profile or Avoid order must not inherit the old failure.
+	if need and o.path.is_empty() and o.goal.distance_to(p) <= 0.4 and o.ticker.get("prof", -1) == prof \
+		and o.ticker.get("ak", "") == ak and t < o.ticker.get("path_fail_until", -1.0):
 		need = false
 	if need:
 		var why := ""
@@ -2317,29 +2320,45 @@ func _move(o) -> void:
 	_move2(o)
 
 
+## The navigator plans around static geometry; actual steps also have to respect
+## separation, sidesteps and dynamic door leaves. The 2 cm slack from the 0.30 m
+## lattice inflation matches the doorway path clearance used by the nav tests.
+const MOVE_RADIUS := Geom.MOVE_CLEARANCE
+
+
+func _movement_clear(a: Vector2, b: Vector2) -> bool:
+	if not geom.move_clear(a, b, MOVE_RADIUS):
+		return false
+	return geom.dyn_active <= 0 or geom.leaf_in_way(a, b, 0.25) < 0
+
+
 func _move2(o) -> void:
 	var newp: Vector2 = o.pos
 	if blocks_move(o):
 		o.vel = Vector2.ZERO
 		return
-	if not o.sidestep.is_empty():
+	var stepping: bool = not o.sidestep.is_empty()
+	var max_step: float = SPEEDS["step"] * DT if stepping else o.speed * DT
+	if stepping:
 		var sd: Dictionary = o.sidestep
 		sd["left"] -= DT
-		var q: Vector2 = o.pos + sd["dir"] * SPEEDS["step"] * DT
-		if sd["left"] <= 0.0 or not nav.is_free(q):
+		var q: Vector2 = o.pos + sd["dir"] * max_step
+		if sd["left"] <= 0.0 or not _movement_clear(o.pos, q):
 			o.sidestep = {}
 		else:
 			newp = q
 	elif o.moving and o.path.size() > 0:
-		while o.path_i < o.path.size() and o.pos.distance_to(o.path[o.path_i]) < 0.08:
+		# Skipping an 8 cm corner lets a body cut through the jamb even when the
+		# planned legs are clear. Approach the waypoint before turning.
+		while o.path_i < o.path.size() and o.pos.distance_to(o.path[o.path_i]) < 0.015:
 			o.path_i += 1
 		if o.path_i >= o.path.size():
 			o.moving = false
 		else:
 			var target: Vector2 = o.path[o.path_i]
 			var d: Vector2 = target - o.pos
-			newp = o.pos + d.limit_length(o.speed * DT)
-			# a shut door in the way (v0.7.5): stop and open it, or break it in
+			newp = o.pos + d.limit_length(max_step)
+			# A shut door in the way: stop and open it, or break it in.
 			if geom.dyn_active > 0:
 				var leaf: int = geom.leaf_in_way(o.pos, o.pos + d.limit_length(0.45), 0.25)
 				if leaf >= 0:
@@ -2347,26 +2366,43 @@ func _move2(o) -> void:
 					var did0: String = level.door_of_leaf(leaf)
 					if did0 != "":
 						work_door(o, did0)
-	# separation from other bodies (suspended briefly when two are jammed in a doorway)
+	# Holding position, opening a door, and a failed/finished path are not
+	# movement requests. In particular, neighbours must not shove a stationary
+	# operator away from their post or through a door they are working on.
+	var intended: Vector2 = newp - o.pos
+	if intended.length_squared() < 0.00000001:
+		o.vel = Vector2.ZERO
+		return
+	# Separation is bounded by the actor's own speed and checked as a swept body,
+	# not merely by the grid cell containing the pushed position. A short ghost
+	# interval remains the last resort for a genuine body-to-body doorway jam;
+	# it never disables collision with walls or shut doors.
 	var ghost: bool = o.ticker.get("ghost_until", -1.0) > t
 	for m in ([] if ghost else _near_fast(newp, 0.72)):
-		if m == o:
+		if m == o or not m.alive():
 			continue
-		if absf(newp.x - m.pos.x) >= 0.5 or absf(newp.y - m.pos.y) >= 0.5 or not m.alive():
+		if absf(newp.x - m.pos.x) >= 0.5 or absf(newp.y - m.pos.y) >= 0.5:
 			continue
 		var sep: Vector2 = newp - m.pos
 		var dd := sep.length()
-		if dd < 0.5 and dd > 0.001:
-			var q2: Vector2 = newp + sep / dd * (0.5 - dd) * 0.5
-			if nav.is_free(q2):
+		if dd < 0.5:
+			# Exactly coincident starts need a stable tie-breaker, not a zero vector.
+			var away: Vector2 = sep / dd if dd > 0.001 else (Vector2.UP if o.gid < m.gid else Vector2.DOWN)
+			var q2: Vector2 = o.pos + (newp + away * (0.5 - dd) * 0.5 - o.pos).limit_length(max_step)
+			if _movement_clear(o.pos, q2):
 				newp = q2
+	if not _movement_clear(o.pos, newp):
+		newp = o.pos
 	var moved: float = newp.distance_to(o.pos)
 	if moved > 0.0005 and o.sidestep.is_empty() and o.moving:
 		o.ticker["step_d"] = o.ticker.get("step_d", 0.0) + moved
 		if o.ticker["step_d"] >= 1.2:
 			o.ticker["step_d"] = 0.0
 			emit_sound(o, o.goal_mode)
-	if o.moving and o.sidestep.is_empty() and moved < 0.005:
+	# Sideways shuffling against a teammate is not progress toward the waypoint.
+	# Do not mistake a door being opened for a body jam.
+	var forward: float = (newp - o.pos).dot(intended.normalized())
+	if o.moving and not stepping and forward < minf(0.005, intended.length() * 0.15) and not door_ahead(o):
 		o.ticker["jam_t"] = o.ticker.get("jam_t", 0.0) + DT
 		if o.ticker["jam_t"] > 1.0:
 			o.ticker["ghost_until"] = t + 0.8

@@ -5,7 +5,7 @@ extends SceneTree
 ##   - the project declares the 4.7 feature tag;
 ##   - a save that *parses* as JSON but lost a key degrades instead of throwing
 ##     (SaveFile only falls back to .bak on a parse failure, not an incomplete file);
-##   - the navigator degrades to a direct line if it was never built;
+##   - an unbuilt navigator fails safely without inventing an unchecked route;
 ##   - version metadata stays in sync across the three generated files.
 ##   godot --headless --path . -s res://tests/godot472_test.gd
 
@@ -171,5 +171,4 @@ func _test_nav_without_build() -> void:
 	var nv = Nav.new()
 	# build() not called: grids is empty on purpose
 	var path: PackedVector2Array = nv._find_path(0, Vector2(1, 1), Vector2(9, 9))
-	check(path.size() == 2, "an unbuilt navigator returns a direct line instead of crashing")
-	check(path[0] == Vector2(1, 1) and path[1] == Vector2(9, 9), "the fallback keeps both endpoints")
+	check(path.is_empty(), "an unbuilt navigator fails closed instead of inventing an unchecked route")

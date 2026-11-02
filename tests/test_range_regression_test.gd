@@ -77,6 +77,24 @@ func event_count(w, kind: String) -> int:
 	return int(w.diagnostic_counts.get(kind, 0))
 
 
+func test_weapons_tight() -> void:
+	var w = world(11, 1)
+	var a = w.by_id["A1"]
+	var e = w.by_id["B1"]
+	a.judges = true
+	a.judged[e.id] = {"v": "threat"}
+	e.aim = {}
+	e.last_shot_t = -99.0
+	a.roe_tight = false
+	check(w.cleared_to_fire(a, e), "ordinary police may fire at a judged armed threat before it attacks")
+	a.roe_tight = true
+	check(not w.cleared_to_fire(a, e), "Weapons tight holds fire on an armed but non-attacking threat")
+	e.aim = {"tid": a.id}
+	e.armed_t = w.t
+	check(w.cleared_to_fire(a, e), "Weapons tight still permits fire at an attacking threat")
+	w.dispose()
+
+
 func test_lane() -> void:
 	var w = world()
 	var a = w.by_id["A1"]
@@ -537,6 +555,7 @@ func test_stress_and_kits() -> void:
 
 
 func _init() -> void:
+	test_weapons_tight()
 	test_lane()
 	test_cover()
 	test_shield()
