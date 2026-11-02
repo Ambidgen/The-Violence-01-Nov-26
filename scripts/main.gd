@@ -973,7 +973,7 @@ func _op_finished() -> void:
 		ops_live()
 	var res: Dictionary = Outcome.evaluate(cur_sit, world)
 	res["diff"] = Outcome.plan_diff(cur_sit.get("suggested", {}), plan, res, world)   # Q4: your edits, and whether they held
-	var lines: Array = dept.apply_result(world, level.map_name)
+	var lines: Array = dept.apply_result(world, level.map_name, String(cur_sit.get("type", "")))
 	for b in world.broken:
 		var o = world.by_id.get(b["id"], null)
 		if o != null and o.officer_id != "":
@@ -1224,9 +1224,9 @@ func _check_quiet_timer() -> void:
 		quiet_timer = 0
 	if quiet_timer >= 60:
 		# fast-forward to the end deterministically
-		while not world.over and world.t < 40 do:
+		while not world.over and world.t < 40:
 			world.step()
-		_briefing_open := true
+		_briefing_open = true
 		quiet_timer = 0
 
 func _adaptive_after_step() -> void:
@@ -1404,7 +1404,7 @@ func _process(delta: float) -> void:
 			ui.show_banner("%s   ·   %02d:%04.1f" % [names[world.winner], int(world.t / 60.0), fmod(world.t, 60.0)])
 			if use_dept and not _applied and dept != null:
 				_applied = true
-				dept_lines = dept.apply_result(world, level.map_name)
+				dept_lines = dept.apply_result(world, level.map_name, String(cur_sit.get("type", "")))
 				_save()
 			ui.show_debrief(world, dept_lines, use_dept)
 	_test_hooks()

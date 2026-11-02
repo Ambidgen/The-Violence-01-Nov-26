@@ -11,6 +11,7 @@ extends SceneTree
 const Campaign = preload("res://scripts/campaign/campaign.gd")
 const Rogue = preload("res://scripts/campaign/rogue.gd")
 const Equipment = preload("res://scripts/data/equipment.gd")
+const Courses = preload("res://scripts/data/courses.gd")
 
 const LEGACY := "user://legacy_rogue_test.json"
 var failures := 0
@@ -190,30 +191,43 @@ func _init() -> void:
 	var hire: Dictionary = c.dept.hire("Officer", 0)
 	check((hire["good"] as Array).has("GD03"), "and the academy teaches it to the next hire")
 
-	## EA_TASKS P1.D4.e: rogue_test: reproducibility and an effect assertion for each new item.
-
-	# armoured rescue vehicle reduces raid deaths
-	var res_before := Rogue.run_score(r0)
-	check(res_before["officers_killed"] != null, "score has officers_killed")
-
-	# training range: courses cheaper and faster (CQB costs 1800 instead of 2400)
+	## EA_TASKS P1.D4.e: an effect assertion for each new late-game sink, the P1.E2
+	## reconciliation offer, and the P1.F2 conditional election bonus.
 	var r1 = Campaign.new()
 	r1.start(8000, true, LEGACY)
 	check(r1.dept.officers.size() > 0, "run starts")
-	# program teaches whole force
-	r1.run.program = {"id": "GD03", "name": "Respect lines of fire (GD03)", "weeks_left": 1, "started": 1}
-	r1.run.on_week_end(r1)
-	var force1: Array = r1.dept.officers.filter(func(r): return String(r["status"]) not in ["dead", "fired", "resigned"])
-	check(force1.all(func(r): return (r["good"] as Array).has("GD03")), "program teaches GD03 to every officer")
-
-	# union contract: pay raise and morale floor
-	var r2 = Campaign.new()
-	r2.start(8001, true, LEGACY)
-	check(r2.dept.PAY["Officer"] == 1200, "union contract raises officer pay to $1200")
-	check(r2.dept.MORALE_FLOOR_UP == 10, "union contract sets morale floor +10")
-
-	# tier-3 programs are pricier
-	check(r1.run.CONTRACTS.size() >= 0, "run has contracts")
+	# the ARV: a capital contract, flagged in dept.capital (the gang-raid rescue reads it)
+	check(not r1.dept.capital.get("arv", false), "no ARV before the contract")
+	r1.run._sign(r1, "arv", true)
+	check(r1.dept.capital.get("arv", false) and Rogue.item_name("arv") == "Armoured rescue vehicle",
+		"the ARV contract lands as a capital item")
+	# the training range offer: courses a quarter cheaper
+	var cqb0: int = r1.dept.course_cost("cqb")
+	r1.run.apply(r1, {"range": true}, {})
+	check(r1.dept.has_range and r1.dept.course_cost("cqb") == int(round(cqb0 * Courses.RANGE_DISCOUNT)),
+		"the range offer makes courses a quarter cheaper ($%d -> $%d)" % [cqb0, r1.dept.course_cost("cqb")])
+	# the union contract: the morale floor rises for good
+	var m0: int = int(r1.dept.morale_home)
+	r1.run.apply(r1, {"morale_floor": Courses.MORALE_FLOOR_UP}, {})
+	check(int(r1.dept.morale_home) == m0 + Courses.MORALE_FLOOR_UP, "the union contract raises the morale floor to %d" % int(r1.dept.morale_home))
+	# the surplus-return offer is on the desk, and the tier-3 programs are repriced
+	check(Rogue.OFFERS.any(func(o): return String(o.get("id", "")) == "return_surplus"), "the surplus-return offer exists")
+	check(Rogue.PROGRAM_TIER3_WEEK == 20 and Rogue.PROGRAM_TIER3.size() > 0 and Rogue.PROGRAM_TIER3_MULT > 1.0,
+		"tier-3 programs join the drafts at week %d, repriced x%.1f" % [Rogue.PROGRAM_TIER3_WEEK, Rogue.PROGRAM_TIER3_MULT])
+	# P1.E2: a lost ally gets a reconciliation offer, once per ally per run
+	r1.politics._ally("union", -100, r1.dept, [], "test")
+	check(r1.politics.lost("union"), "union is lost after -100 standing")
+	var rl: Array = r1.run._maybe_reconcile(r1)
+	check(r1.run.offers.any(func(o): return String(o.get("id", "")) == "reconcile_union") and rl.size() == 1,
+		"a lost ally gets a reconciliation offer")
+	check(r1.run._maybe_reconcile(r1).is_empty(), "not again inside the cooldown window")
+	# P1.F2: keeping the office pays +60 on a clean record, +20 on a violent one
+	r1.politics.result = {"ending": {"keep": true}}
+	var sc1: Dictionary = Rogue.run_score(r1)
+	check(int(sc1["parts"].get("the election", 0)) == 60, "a clean record keeps the office for +60")
+	r1.politics.record["officers_killed"] = 5
+	var sc2: Dictionary = Rogue.run_score(r1)
+	check(int(sc2["parts"].get("the election", 0)) == 20, "five officers killed: kept, but for +20")
 
 ## a whole run, randomly answered, for several seeds
 	var seeds := int(args.get("seeds", "4"))

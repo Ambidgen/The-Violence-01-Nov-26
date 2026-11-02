@@ -228,6 +228,23 @@ func _ops_csv(runs: Array) -> String:
 ## lost, academy throughput, the fit curve).
 const WEEK_COLS := ["seed", "policy", "week", "fit", "injured", "academy", "dead_total", "balance", "morale"]
 
+## EA_TASKS P1.E1: every run-week's ally standings and lost flags, one line a week —
+## the cause log itself (politics.ally_log) rides in the run JSON's record.
+const ALLY_COLS := ["seed", "policy", "week", "ally", "standing", "lost"]
+
+
+func _allies_csv(runs: Array) -> String:
+	var out: PackedStringArray = [",".join(ALLY_COLS)]
+	var sorted_runs := runs.duplicate()
+	sorted_runs.sort_custom(func(a, b): return [int(a["seed"]), String(a["policy"])] < [int(b["seed"]), String(b["policy"])])
+	for r in sorted_runs:
+		for wk in r.get("weeks", []):
+			var allies: Dictionary = wk.get("allies", {})
+			for a in allies:
+				out.append(",".join([int(r["seed"]), String(r["policy"]), int(wk["week"]), String(a),
+					int(allies[a].get("standing", 0)), "1" if bool(allies[a].get("lost", false)) else "0"]))
+	return "\n".join(out) + "\n"
+
 
 func _weeks_csv(runs: Array) -> String:
 	var out: PackedStringArray = [",".join(WEEK_COLS)]
@@ -430,6 +447,7 @@ func _finish(runs: Array, broken: Array, policy_list: Array, weeks: int, n_seeds
 	})
 	_write_text("%s/ops.csv" % out_dir, _ops_csv(runs))
 	_write_text("%s/weeks.csv" % out_dir, _weeks_csv(runs))
+	_write_text("%s/allies.csv" % out_dir, _allies_csv(runs))
 	print(report)
 	print("rogue_balance: %d run(s) in %d s, %d broken, %d band miss(es) -> %s" % [
 		runs.size(), int(wall / 1000), broken.size(), misses, out_dir])
@@ -562,12 +580,7 @@ func derive(run: Dictionary) -> Dictionary:
 		"weeks_fit_below_12": fits.filter(func(f): return int(f) < 12).size(),
 		"weeks_below_zero": below0, "weeks_below_zero_1_12": below0_early,
 		"balance_min": 0 if bal.is_empty() else int(bal.min()), "balance_max": 0 if bal.is_empty() else int(bal.max()),
-		## EA_TASKS P1.D4.f: 3-seed smoke: confirm minimal no longer ends with an unspent six-figure account.
-	## (this is a smoke test; the full rebalancing is P1.D5)
-	var bal_end_minimal := 0 if bal.is_empty() else int(bal[bal.size() - 1])
-	check(bal_end_minimal < 100000, "minimal policy balance at end < $100K (got $%d)" % bal_end_minimal)
-
-"balance_end": 0 if bal.is_empty() else int(bal[bal.size() - 1]),
+		"balance_end": 0 if bal.is_empty() else int(bal[bal.size() - 1]),
 		"unattended": int(rec.get("unattended", 0)),
 		"officers_killed": int(rec.get("officers_killed", 0)),
 		"officers_killed_per_op": float(run.get("officers_killed_per_op", 0.0)),
@@ -578,6 +591,10 @@ func derive(run: Dictionary) -> Dictionary:
 		"run_score": int(score.get("total", 0)), "kept": bool(election.get("kept", false)),
 		"winner": String(election.get("winner", "")), "wall_ms": int(run.get("wall_ms", 0)),
 	}
+	# EA_TASKS P1.D4.f: minimal must no longer end with an unspent six-figure account
+	# (smoke check here; the full rebalancing is P1.D5).
+	if String(run.get("policy", "")) == "minimal" and int(out["balance_end"]) >= 100000:
+		failures.append("seed %d minimal ended with $%d unspent (P1.D4.f)" % [int(run.get("seed", 0)), int(out["balance_end"])])
 	return out
 
 
