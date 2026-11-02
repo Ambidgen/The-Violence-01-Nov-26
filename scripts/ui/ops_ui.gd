@@ -86,6 +86,17 @@ func _clear() -> void:
 	_run_refs.clear()
 
 
+## EA_TASKS P1.D1: a confirm dialog for any hire, course or contract that pushes the
+## four-week forecast into the red. back() rebuilds the screen the choice was on.
+func _confirm(title: String, body: String, on_yes: Callable, back: Callable) -> void:
+	mode = "confirm"
+	_clear()
+	_title(title, 16)
+	_text(box, body, INK, 12)
+	_btn(box, "Yes — commit", func(): on_yes.call())
+	_btn(box, "Not now", func(): back.call())
+
+
 # ------------------------------------------------------------------ widgets
 func _title(text: String, size := 18) -> Label:
 	var l := Label.new()
@@ -386,13 +397,46 @@ func _desk_draft(di: int) -> void:
 		if not meta.is_empty():
 			_text(v, "  ·  ".join(meta), GREY, 10)
 		var cc: String = cid
-		var b := _btn(v, "Choose", func(): _desk_back(run.pick(c, di, cc)))
-		if int(info.get("cost", 0)) > int(c.dept.balance):
+		var b := _btn(v, "Choose", func(): _desk_choose(c, run, di, cc))
+		# P1.D2/D1: the overdraft carries a purchase, but not past the limit; and the
+		# button says which forecast week the price turns red.
+		var cost: int = int(info.get("cost", 0))
+		if cost > 0 and c.dept.balance - cost < c.dept.OVERDRAFT_LIMIT:
 			b.disabled = true
-			b.tooltip_text = "The account cannot cover it."
+			b.tooltip_text = "Past the overdraft limit (-$%s): the account cannot cover it." % Department.money(-c.dept.OVERDRAFT_LIMIT)
+		elif cost > 0:
+			var worst: Dictionary = Department.forecast_worst(c.dept.forecast_after("kit" if kind == "procurement" else "course", cost))
+			if not worst.is_empty():
+				b.tooltip_text = "Week %d goes to -$%s on the four-week forecast." % [int(worst["week"]), Department.money(-int(worst["balance"]))]
 	if kind != "doctrine":
 		_btn(box, "Pass%s" % (" (surplus sold: +$%s)" % Department.money(Rogue.PASS_REFUND) if kind == "procurement" else ""), func(): _desk_back(run.pick(c, di, "")))
 	_btn(box, "<  Board", func(): show_board())
+
+
+## EA_TASKS P1.D1: choosing a draft card with a price asks first when the four-week
+## forecast goes into the red.
+func _desk_choose(c, run, di: int, cid: String) -> void:
+	if di >= run.drafts.size():
+		show_board()
+		return
+	var kind: String = String(run.drafts[di].get("kind", ""))
+	var cost := 0
+	if kind != "doctrine":
+		cost = int(run.card_info(kind, cid, c).get("cost", 0))
+	if cost > 0:
+		var worst: Dictionary = Department.forecast_worst(c.dept.forecast_after("kit" if kind == "procurement" else "course", cost))
+		if not worst.is_empty():
+			_confirm(
+				"SPEND INTO THE RED?",
+				(
+					"$%s now. On the four-week forecast, week %d goes to -$%s (the council's overdraft limit is -$%s). Commit anyway?"
+					% [Department.money(cost), int(worst["week"]), Department.money(-int(worst["balance"])), Department.money(-c.dept.OVERDRAFT_LIMIT)]
+				),
+				func(): _desk_back(run.pick(c, di, cid)),
+				func(): show_board()
+			)
+			return
+	_desk_back(run.pick(c, di, cid))
 
 
 func _desk_offer(oi: int) -> void:
@@ -506,7 +550,9 @@ func _first_weeks(parent: Control) -> void:
 ## The Carrick Ledger: last week's front page (v0.9).
 func _front_page(parent: Control, p, week: int) -> void:
 	var items: Array = p.week_press(week)
-	if items.is_empty():
+	# P1.F1: the ledger also shows what moved the ally and poll numbers this week.
+	var causes: Array = p.week_causes(week)
+	if items.is_empty() and causes.is_empty():
 		return
 	var v := _card(parent)
 	var mast := _text(v, "T H E   C A R R I C K   L E D G E R   ·   week %d" % week, INK, 11)
@@ -518,6 +564,10 @@ func _front_page(parent: Control, p, week: int) -> void:
 		)
 		_text(v, String(it["head"]), Ink.accent(0.9) if hot else INK, 13)
 		_text(v, String(it["body"]), GREY, 10)
+	if not causes.is_empty():
+		_text(v, "What moved the numbers this week:", GREY, 10)
+		for cl in causes.slice(0, 8):
+			_text(v, "·  " + cl, GREY, 10)
 
 
 ## The recurring chapter card: the act gives the campaign its question; the open call,
@@ -1265,26 +1315,47 @@ func _officer_card(r: Dictionary, busy: Dictionary) -> void:
 			)
 			var why: String = Courses.blocked(r, cid)
 			if why == "" and can_now and d.frozen():
-				why = "account in the red (it can still be queued)"
+				why = "below the overdraft limit (it can still be queued)"
 				can_now = false
 			var h := _h(v)
+			# P1.D1: price this course into the four-week forecast for the button label.
+			var cost_now: int = d.course_cost(cid) if can_now else 0
+			var worst: Dictionary = Department.forecast_worst(d.forecast_after("course", cost_now)) if can_now else {}
+			var effect := ""
+			if not worst.is_empty():
+				effect = "  → week %d: -$%s" % [int(worst["week"]), Department.money(-int(worst["balance"]))]
+			var rr: Dictionary = r
+			var ccid: String = cid
 			var cb := _btn(
 				h,
 				(
-					"%s: %s  $%s  %dw%s"
+					"%s: %s  $%s  %dw%s%s"
 					% [
 						"Send" if can_now else "Queue",
 						c["name"],
-						Department.money(int(c["cost"])),
-						int(c["weeks"]),
-						"  (classroom)" if classroom else ""
+						Department.money(d.course_cost(cid)),
+						d.course_weeks(cid),
+						("  (classroom)" if classroom else ""),
+						effect
 					]
 				),
-				func(): _train(r, cid)
+				func():
+					if not worst.is_empty():
+						_confirm(
+							"COURSE INTO THE RED?",
+							(
+								"%s costs $%s. On the four-week forecast, week %d goes to -$%s. Commit anyway?"
+								% [c["name"], Department.money(cost_now), int(worst["week"]), Department.money(-int(worst["balance"]))]
+							),
+							func(): _train(rr, ccid),
+							func(): _roster()
+						)
+					else:
+						_train(rr, ccid)
 			)
 			cb.disabled = (
 				why != ""
-				and not (why.begins_with("account in the red") and q.size() < Courses.QUEUE_MAX)
+				and not (why.begins_with("below the overdraft limit") and q.size() < Courses.QUEUE_MAX)
 			)
 			if q.size() >= Courses.QUEUE_MAX and not can_now:
 				cb.disabled = true
@@ -1388,11 +1459,15 @@ func _cohort(r: Dictionary) -> void:
 func _applicants() -> void:
 	var d = main.campaign.dept
 	var pool: Array = d.applicants_now()
-_text(
+	_text(
 		box,
 		(
 			"APPLICANTS  ·  week %d%s"
-			% [d.week, "  (overdraft: -$%s/%s)" % [Department.money(-d.OVERDRAFT_LIMIT), Department.money(balance)] if d.frozen() and balance <= d.OVERDRAFT_LIMIT else ("  (hiring frozen: the account is in the red)" if d.frozen() else ""]
+			% [
+				d.week,
+				("  (frozen: below the -$%s overdraft limit)" % Department.money(-d.OVERDRAFT_LIMIT)) if d.frozen()
+				else (("  (overdraft: -$%s, interest accrues weekly)" % Department.money(-d.balance)) if d.balance < 0 else "")
+			]
 		),
 		INK,
 		12
@@ -1466,27 +1541,39 @@ _text(
 		)
 		var h := _h(v)
 		var rec: Dictionary = r
-		var fc := main.campaign.dept.forecast_after("hire")
-		var worst_week := ""
-		var worst_deficit := 0
-		for row in fc:
-			if int(row["balance"]) < 0 and (worst_deficit == 0 or int(row["week"]) < worst_week):
-				worst_deficit = int(row["balance"])
-				worst_week = int(row["week"])
+		# P1.D1: the four-week forecast with this hire priced in, so the button says
+		# which week goes into the red before the chief commits — and asks first.
+		var fc := d.forecast_after("hire", Department.applicant_cost(r), Courses.pay(r))
+		var worst := Department.forecast_worst(fc)
 		var deficit_text := ""
-		if worst_week > 0 and worst_deficit < 0:
-			deficit_text := (" week %d goes to -$%s" % [worst_week, Department.money(-worst_deficit)])
-		hb.tooltip_text = deficit_text
+		if not worst.is_empty():
+			deficit_text = " — week %d goes to -$%s" % [int(worst["week"]), Department.money(-int(worst["balance"]))]
 		var hb := _btn(
 			h,
 			(
 				"Hire  ($%s now, payroll +$%s a week)%s"
 				% [Department.money(Department.applicant_cost(r)), Department.money(Courses.pay(r)), deficit_text]
 			),
-			func(): _hire_applicant(rec)
-		)
+			func():
+				if worst.is_empty():
+					_hire_applicant(rec)
+				else:
+					_confirm(
+						"HIRE INTO THE RED?",
+						(
+							"Hiring %s %s costs $%s now and +$%s a week in payroll. On these numbers week %d goes to -$%s. Inside the council's overdraft that is allowed (with weekly interest); past the -$%s limit hiring freezes. Sign anyway?"
+							% [
+								rec["rank"], rec["name"], Department.money(Department.applicant_cost(rec)),
+								Department.money(Courses.pay(rec)), int(worst["week"]),
+								Department.money(-int(worst["balance"])), Department.money(-d.OVERDRAFT_LIMIT)
+							]
+						),
+						func(): _hire_applicant(rec),
+						func(): _roster()
+					)
+			)
 		hb.disabled = d.frozen()
-		hb.tooltip_text = String(UI.officer_file(r))
+		hb.tooltip_text = String(UI.officer_file(r)) + (("\n" + deficit_text.trim_prefix(" — ")) if deficit_text != "" else "")
 
 
 ## EA_TASKS P1.C3: an experienced officer from a neighbouring force, on duty this week,
@@ -1645,8 +1732,8 @@ func _forecast() -> void:
 		_text(
 			v,
 			(
-				"On these numbers the account is in the red at week %d: hiring, training and new kit freeze there, and the council counts the weeks. Spend less, settle nothing new, or ask the committee (below) before it lands."
-				% worst
+				"On these numbers the account is in the red at week %d. Interest accrues weekly while it is below zero, and past the -$%s overdraft limit hiring, training and new kit freeze. Spend less, settle nothing new, or ask the committee (below) before it lands."
+				% [worst, Department.money(-d.OVERDRAFT_LIMIT)]
 			),
 			Ink.accent(0.9),
 			10
