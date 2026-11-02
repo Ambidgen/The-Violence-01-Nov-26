@@ -62,6 +62,8 @@ jobs:
       - name: test runner regression tests
         # tools/run_tests.sh itself: exit codes, xfail/xpass, timeouts, ~ in GODOT
         run: python3 -m unittest discover -s tests -p test_runner.py -v
+      - name: timing analysis regression tests
+        run: python3 -m unittest discover -s tests -p 'test_*analysis.py' -v
       - name: version metadata is in sync
         run: |
           python3 tools/sync_version.py --check || {

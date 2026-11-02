@@ -102,7 +102,7 @@ func _init() -> void:
 			printerr("Could not write range determinism fixture")
 			quit(1)
 			return
-		out.store_string(JSON.stringify({"model": "test-range-2026-11-02-group-movement", "cases": results}, "  ", true) + "\n")
+		out.store_string(JSON.stringify({"model": "test-range-2026-11-02-clearance-progress", "cases": results}, "  ", true) + "\n")
 		out.close()
 		print("Wrote %d range-only digests to %s" % [results.size(), FIXTURE])
 	print("range determinism: %s" % ("PASS" if failures == 0 else "%d FAILED" % failures))

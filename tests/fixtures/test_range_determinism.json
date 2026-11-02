@@ -1,10 +1,10 @@
 {
   "cases": {
     "cover_repro": {
-      "digest": "6d8ee792145709ea",
-      "hits": 15,
-      "shots": 237,
-      "time": 126.9,
+      "digest": "880d36053bf88821",
+      "hits": 14,
+      "shots": 135,
+      "time": 87.1,
       "timeout": false,
       "winner": 1
     },
@@ -17,10 +17,10 @@
       "winner": 0
     },
     "large_team": {
-      "digest": "8aa314044ef9a47c",
-      "hits": 22,
-      "shots": 67,
-      "time": 51.3,
+      "digest": "6866e7f59d65fee1",
+      "hits": 18,
+      "shots": 60,
+      "time": 21.867,
       "timeout": false,
       "winner": 0
     },
@@ -33,10 +33,10 @@
       "winner": 1
     },
     "motel": {
-      "digest": "6cec330f47637bde",
+      "digest": "36f5db7f67ab496f",
       "hits": 17,
-      "shots": 67,
-      "time": 128.9,
+      "shots": 62,
+      "time": 118.267,
       "timeout": false,
       "winner": 0
     },
@@ -49,21 +49,21 @@
       "winner": 0
     },
     "sof_control": {
-      "digest": "74ddc92a0310d005",
-      "hits": 10,
-      "shots": 18,
-      "time": 68.167,
+      "digest": "4141c639f505ff77",
+      "hits": 6,
+      "shots": 10,
+      "time": 58.733,
       "timeout": false,
       "winner": 0
     },
     "unequal": {
-      "digest": "83e5d764a8c5bc44",
-      "hits": 8,
+      "digest": "da15e1d8e47d243c",
+      "hits": 6,
       "shots": 17,
-      "time": 46.667,
+      "time": 39.367,
       "timeout": false,
-      "winner": 0
+      "winner": 1
     }
   },
-  "model": "test-range-2026-11-02-group-movement"
+  "model": "test-range-2026-11-02-clearance-progress"
 }

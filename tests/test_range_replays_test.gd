@@ -57,8 +57,12 @@ func _init() -> void:
 	var cover := replay(11, "untrained", "untrained", 5, 721001, true)
 	var cs: Dictionary = cover["snapshot"]
 	print("cover replay: t=%.2f winner=%d shots=%d limit=%.0f events=%s" % [cs["time"], cs["winner"], cs["stat"]["shots"], cover["limit"], str(cover["diagnostics"])])
-	check(cover["over"] and cs["time"] < cover["limit"] and cs["stat"]["shots"] > 141,
-		"map 11 seed 721001 advances beyond the old 141-shot, 900-second stalemate")
+	# The jam-recovery fix changes this fight's trajectory and it now ends after
+	# 135 shots, before the old stalled replay had reached its 141st shot. The
+	# relevant invariant is a genuine combat outcome before the timeout, not a
+	# requirement to fire more rounds than a fight that lasted 900 seconds.
+	check(cover["over"] and cs["time"] < cover["limit"] and cs["winner"] != 2 and cs["stat"]["shots"] > 0,
+		"map 11 seed 721001 resolves combat before the old 900-second stalemate")
 	check(lane["dropped"] == 0 and cover["dropped"] == 0, "replay diagnostics did not overflow")
 	var plain := replay(3, "sof", "regular", 3, 740123, false)
 	var observed := replay(3, "sof", "regular", 3, 740123, true)
