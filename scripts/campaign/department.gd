@@ -29,10 +29,11 @@ const Courses = preload("res://scripts/data/courses.gd")
 
 const VERSION := 6        # 4: v0.8, pair bonds; 5: v0.8.5, budget/training/cases; 6: applicant pool and course clocks
 const SAVE_PATH := "user://department.json"
-## EA_TASKS P1.D2: overdount tuning table
-const OVERDRAFT_LIMIT := -25000      # council allows the account to go to -5K before freezing
-const OVERDRAFT_INTEREST := 0.02     # 2% weekly interest on the negative balance
-const DUFF_STANDING_COST := 1000     # weekly cost for Duff standing
+## EA_TASKS P1.D2: the council overdraft. The account may go to OVERDRAFT_LIMIT before
+## anything freezes; below $0 it pays weekly interest (next_week), and each week in
+## overdraft costs the budget chair standing (politics.week_end).
+const OVERDRAFT_LIMIT := -25000      # the freeze applies only below this
+const OVERDRAFT_INTEREST := 0.02     # weekly interest on the negative balance
 ## Experience points needed for tiers 1-5 (Green, Blooded, Seasoned, Veteran, Exceptional).
 const XP_TIERS := [0, 6, 18, 40, 80]
 const RANKS := ["Officer", "Corporal", "Sergeant", "Lieutenant", "Captain"]
@@ -369,7 +370,7 @@ func fit_next_week() -> Dictionary:
 		if (not studying or course_done) and acct >= 0:
 			var cid := _first_startable(r)
 			if cid != "":
-				acct -= int(Courses.COURSES[cid]["cost"])
+				acct -= course_cost(cid)
 				out["to_course"] += 1
 				continue
 		out["fit"] += 1
@@ -654,10 +655,15 @@ func enrol_or_queue(r: Dictionary, cid: String) -> Dictionary:
 		var why: String = enrol(r, cid)
 		if why == "":
 			return {"ok": true, "mode": "now", "why": ""}
-		if why != "the account is in the red":
+		if why != FROZEN_WHY:
 			return {"ok": false, "mode": "now", "why": why}
 	var why2: String = queue_course(r, cid)
 	return {"ok": why2 == "", "mode": "queued", "why": why2}
+
+
+## The text the queue path reports when the freeze holds a course back (P1.D2: the
+## freeze is the overdraft limit now, not zero).
+const FROZEN_WHY := "below the overdraft limit: no courses while the freeze holds"
 
 
 ## Send a group on the close-quarters refresher together (Q9): three or more who can
@@ -724,10 +730,11 @@ func queued_cost() -> int:
 
 ## The account, four weeks out, as far as it is knowable today (Q8): each week's
 ## allocation against today's payroll, minus the lawsuits already filed and due
-## (pending entries of kind "lawsuit" from the city). It cannot know next week's
-## overtime, wounds or settlements nobody has filed yet — but a cash crunch made of
-## things already on the books should never be a surprise. First row is the end of
-## this week. Returns [{week, allocation, payroll, lawsuits, balance}].
+## (pending entries of kind "lawsuit" from the city — instalments land in their own
+## weeks, P1.D3), minus the council's overdraft interest on any negative week (P1.D2).
+## It cannot know next week's overtime, wounds or settlements nobody has filed yet —
+## but a cash crunch made of things already on the books should never be a surprise.
+## First row is the end of this week. Returns [{week, allocation, payroll, lawsuits, balance}].
 func forecast(weeks_n := 4, pending: Array = []) -> Array:
 	var rows: Array = []
 	var bal: int = balance
@@ -736,35 +743,77 @@ func forecast(weeks_n := 4, pending: Array = []) -> Array:
 		var wk: int = week + i
 		var suits := 0
 		for p in pending:
-			if String(p.get("kind", "")) == "lawsuit" and int(p.get("due", -1)) == wk:
+			if String(p.get("kind", "")) != "lawsuit":
+				continue
+			var inst = p.get("instalments", null)
+			if inst is Array:
+				for it in inst:
+					if it is Dictionary and not bool(it.get("paid", false)) and int(it.get("week", -1)) == wk:
+						suits += int(it.get("amount", 0))
+			elif int(p.get("due", -1)) == wk:
 				suits += int(p.get("cost", 0))
 		bal += allocation - pr - suits
+		if bal < 0:
+			bal -= int(ceil(-bal * OVERDRAFT_INTEREST))
 		rows.append({"week": wk, "allocation": allocation, "payroll": pr, "lawsuits": suits, "balance": bal})
 	return rows
 
 
-## EA_TASKS P1.D1: forecast_after returns the four-week balance with one action added.
-## action is "hire", "course", or "kit"; the function adds the relevant cost and
-## returns the week-by-week balance projection so the UI can show "week N goes to -".
-func forecast_after(action: String) -> Array:
-	var rows := forecast(4)
-	var extra: Array = []
-	for i in 4:
-		var row := rows[i]
-		var wk: int = int(row["week"])
+## EA_TASKS P1.D1: the four-week forecast with one action added, so every hire, course
+## and kit button can say "week N goes to -$X" before the chief commits. "hire" charges
+## the signing cost now and the new payroll every week from this one (the academy pays);
+## "course" and "kit" charge once, in this week's row. cost/per_week override the
+## defaults so a specific applicant or course is priced, not the generic one.
+func forecast_after(action: String, cost := -1, per_week := 0, pending: Array = []) -> Array:
+	var rows := forecast(4, pending)
+	var out: Array = []
+	for i in rows.size():
+		var row: Dictionary = rows[i]
 		var bal: int = int(row["balance"])
-		if action == "hire":
-			var cost: int = Courses.RECRUIT + int(Equipment.cost(Equipment.default_kit()))
-			bal -= cost
-		else if action == "course":
-			# the cheapest classroom course (uof): judgment review
-			var course_cost := int(Courses.COURSES["uof"]["cost"])
-			bal -= course_cost
-		else if action == "kit":
-			var cost: int = int(Equipment.cost(Equipment.default_kit()))
-			bal -= cost
-		extra.append({"week": wk, "balance": bal, "action": action})
-	return extra
+		match action:
+			"hire":
+				if cost < 0:
+					cost = Courses.RECRUIT + Equipment.cost(Equipment.default_kit())
+				if per_week <= 0:
+					per_week = Courses.PAY["Officer"]
+				bal -= cost + per_week * (i + 1)
+			"course":
+				if cost < 0:
+					cost = course_cost("uof")
+				bal -= cost
+			"kit":
+				if cost < 0:
+					cost = Equipment.cost(Equipment.default_kit())
+				bal -= cost
+		out.append({"week": int(row["week"]), "balance": bal, "action": action})
+	return out
+
+
+## The first week a forecast row goes negative (what "week 6 goes to -$2,100" means),
+## or {} when it never does.
+static func forecast_worst(rows: Array) -> Dictionary:
+	for row in rows:
+		if int(row["balance"]) < 0:
+			return {"week": int(row["week"]), "balance": int(row["balance"])}
+	return {}
+
+
+## EA_TASKS P1.D4: what a course costs now — a quarter less with the department's own
+## training range — and how many weeks it takes (one fewer, at least one).
+func course_cost(cid: String) -> int:
+	var c: Dictionary = Courses.COURSES.get(cid, {})
+	var base: int = int(c.get("cost", 0))
+	if has_range:
+		base = int(round(base * Courses.RANGE_DISCOUNT))
+	return base
+
+
+func course_weeks(cid: String) -> int:
+	var c: Dictionary = Courses.COURSES.get(cid, {})
+	var wks: int = int(c.get("weeks", 1))
+	if has_range:
+		wks = maxi(1, wks - Courses.RANGE_WEEKS_OFF)
+	return wks
 
 ## A course ends: what it teaches.
 func _finish_course(r: Dictionary) -> String:
@@ -993,7 +1042,9 @@ func to_cfg(r: Dictionary, slot: int, level, alert := 1) -> Dictionary:
 # ================================================================== back from an operation
 ## Write what happened to each department officer back into their record, file the
 ## incident summary, and save. Returns readable lines for the debrief.
-func apply_result(w, map_name: String) -> Array:
+## EA_TASKS P1.D4: sit_type is passed so a capital item can matter — the armoured rescue
+## vehicle (capital["arv"]) carries the first officer downed in a gang raid out alive.
+func apply_result(w, map_name: String, sit_type := "") -> Array:
 	ops_run += 1
 	var lines: Array = []
 	var inc = w.incident
@@ -1003,6 +1054,8 @@ func apply_result(w, map_name: String) -> Array:
 	for o in w.ops:
 		if o.officer_id != "" and o.state == "dead":
 			officers_dead += 1
+	var arv := bool(capital.get("arv", false)) and sit_type == "gang"
+	var arv_used := false
 	var n_off := 0
 	var restock := 0.0
 	for o in w.ops:
@@ -1451,7 +1504,7 @@ func from_data(d: Dictionary) -> bool:
 					c[ck] = int(c[ck])
 	else:
 		allocation = int(round(payroll() * (1.0 + Courses.HEADROOM) / 500.0)) * 500
-		balance = Courses.RESERVE
+		balance = Courses.reserve
 		morale = Courses.MORALE0
 		ledger = []
 		cases = []

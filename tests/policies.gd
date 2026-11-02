@@ -266,6 +266,10 @@ static func want_offer(o: Dictionary, pol: Dictionary) -> bool:
 	for a in ally:
 		if int(ally[a]) < 0:
 			return false
+	if eff.has("reconcile"):
+		# EA_TASKS P1.E2: winning a lost ally back is the whole point of the offer
+		# (affordability is enforced by answer_offer, to the overdraft limit)
+		return true
 	if eff.has("contract"):
 		# "military" is the tag an offer uses to grant *some* military contract; check
 		# both forms, or cautious would take Kettering's truck for the cash.

@@ -464,7 +464,9 @@ func _build_setup() -> void:
 	hs.add_child(seed_spin)
 	_btn(hs, "Random", func(): seed_spin.value = randi_range(1, 999999))
 	seed_spin.custom_minimum_size = Vector2(120, 0)
-	seed_spin.value_changed.connect(func(_v): if main.n_civ > 0: main.set_civilians(main.n_civ))
+	seed_spin.value_changed.connect(func(_v):
+		if main.n_civ > 0:
+			main.set_civilians(main.n_civ))
 	_heading(s, "3  OPERATION  ·  civilians on the map; police rules (team A judges a person before firing, challenges, arrests); team A from the department")
 	var hc := _h(s)
 	var cl := Label.new()
@@ -476,7 +478,9 @@ func _build_setup() -> void:
 	civ_spin.value = main.n_civ
 	civ_spin.custom_minimum_size = Vector2(72, 0)
 	civ_spin.tooltip_text = "Civilians placed from the seed, about two in three indoors.\nNobody targets them on purpose; every bullet can hit them."
-	civ_spin.value_changed.connect(func(v): if not _updating: main.set_civilians(int(v)))
+	civ_spin.value_changed.connect(func(v):
+		if not _updating:
+			main.set_civilians(int(v)))
 	hc.add_child(civ_spin)
 	police_btn = _btn(hc, "Police rules", func(on): main.set_police_rules(on), true)
 	police_btn.set_pressed_no_signal(main.police_rules)
@@ -529,7 +533,9 @@ func _build_kit_tab() -> void:
 			ob.add_item(_kit_item_name(field, item))
 			ob.set_item_metadata(ob.item_count - 1, item)
 			ob.set_item_tooltip(ob.item_count - 1, _kit_item_desc(field, item))
-		ob.item_selected.connect(func(i): if not _updating: main.set_kit(field, ob.get_item_metadata(i)))
+		ob.item_selected.connect(func(i):
+			if not _updating:
+				main.set_kit(field, ob.get_item_metadata(i)))
 		h.add_child(ob)
 		kit_opts[field] = ob
 	var gh := _heading(col, "Gear")
@@ -551,7 +557,9 @@ func _build_kit_tab() -> void:
 		sp.max_value = int(spec["max"])
 		sp.custom_minimum_size = Vector2(64, 0)
 		sp.tooltip_text = gl.tooltip_text
-		sp.value_changed.connect(func(v): if not _updating: main.set_gear(gid, int(v)))
+		sp.value_changed.connect(func(v):
+			if not _updating:
+				main.set_gear(gid, int(v)))
 		grid.add_child(sp)
 		gear_spins[gid] = sp
 	kit_label = Label.new()

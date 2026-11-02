@@ -147,7 +147,9 @@ func t_clear(on: bool, sd: int) -> float:
 	var rooms := [] if not on else ["BED1"]
 	var seen := {}
 	var w = _run(4, sit, {"squads": [_sq(_officers(4), _od([{"kind": "clear", "rooms": rooms}]))]}, 240.0,
-		func(ww): for r in _inside_rooms(ww): seen[r] = true)
+		func(ww):
+			for r in _inside_rooms(ww):
+				seen[r] = true)
 	w.dispose()
 	return seen.size()
 

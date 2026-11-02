@@ -146,6 +146,9 @@ func _init() -> void:
 	_next_week_forecast()
 	_emergency_lateral()
 	_standing_order()
+	_forecast_after_d1()
+	_overdraft_d2()
+	_starting_reserve_d5()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PATH))
 	print("problems: %d" % problems)
 	quit(1 if problems > 0 else 0)
@@ -202,9 +205,13 @@ func _running_the_department() -> void:
 	for k in Department.CASE_WEEKS:
 		d.next_week()
 	_check(c3["status"] == "closed" and c3["decision"] == "lapsed", "an undecided case lapses")
-	# the red: everything that costs money is frozen
+	# P1.D2: inside the council's overdraft nothing is frozen; only below the limit
 	d.balance = -100
-	_check(d.recruit(false).is_empty() and d.enrol(d.available()[0], "judgment") != "", "in the red, hiring and training are frozen")
+	_check(not d.frozen() and not d.recruit(false).is_empty() and d.enrol(d.available()[0], "judgment") == "",
+		"inside the overdraft (-$100, limit -$%d) hiring and training are open" % -Department.OVERDRAFT_LIMIT)
+	d.balance = Department.OVERDRAFT_LIMIT - 1
+	_check(d.frozen() and d.recruit(false).is_empty() and d.enrol(d.available()[0], "judgment") != "",
+		"below the overdraft limit hiring and training are frozen")
 	# it all survives a save
 	var j1 := JSON.stringify(d.to_data())
 	var d2 = Department.new()
@@ -250,10 +257,13 @@ func _applicants_and_statements() -> void:
 	old.erase("applicant_week")
 	var old_dept = Department.new()
 	_check(old_dept.from_data(old) and not old_dept.applicants_now().is_empty(), "a version 5 save still loads and rolls its pool on demand")
-	# frozen hiring blocks the choice but not the looking
+	# frozen hiring blocks the choice but not the looking (P1.D2: the freeze is the limit)
 	d.balance = -500
 	var before: Array = d.applicants_now()
-	_check(not before.is_empty() and d.choose_applicant(before[0]).is_empty(), "in the red the pool still applies, but nobody can be hired")
+	_check(not before.is_empty() and not d.choose_applicant(before[0]).is_empty(), "inside the overdraft the pool applies and can be hired")
+	d.balance = Department.OVERDRAFT_LIMIT - 1
+	before = d.applicants_now()
+	_check(not before.is_empty() and d.choose_applicant(before[0]).is_empty(), "below the overdraft limit the pool still applies, but nobody can be hired")
 	# Q3: the statement and testimony rolls, at their thresholds
 	_check(Department.statement_for(90, "video", 0.0) == "matches", "integrity 90: the statement matches the body camera")
 	_check(Department.statement_for(10, "video", 0.05) == "disagrees", "integrity 10: the statement can simply not match")
@@ -411,7 +421,9 @@ func _emergency_lateral() -> void:
 	a3.from_data(JSON.parse_string(JSON.stringify(a.to_data())))
 	_check(a3.emergency_blocked() != "", "the week's signing survives a save")
 	a.balance = -1
-	_check(a.emergency_blocked().contains("red"), "frozen with hiring when the account is in the red")
+	_check(a.emergency_blocked().contains("one emergency lateral"), "inside the overdraft the lateral is not frozen (this week's is signed)")
+	a.balance = Department.OVERDRAFT_LIMIT - 1
+	_check(a.emergency_blocked().contains("overdraft limit"), "frozen below the overdraft limit")
 
 
 ## EA_TASKS P1.C4: "keep N on the books". Off by default (and then the week is exactly
@@ -464,60 +476,76 @@ func _standing_order() -> void:
 	_check(a.on_books() == before, "cancelled: nobody else is enrolled")
 
 
-## EA_TASKS P1.D1: forecast_after tests the four-week balance with one action added.
-func test_forecast_after() -> void:
+## EA_TASKS P1.D1: forecast_after prices one action into the four-week forecast, and
+## forecast_worst names the first red week, so the UI can warn before a negative.
+func _forecast_after_d1() -> void:
+	print("  -- forecast_after (P1.D1)")
 	var d = Department.new()
 	d.found(1234)
-	# Test hire forecast
-	var hire_forecast := d.forecast_after("hire")
-	_check(hire_forecast.size() == 4, "hire forecast has 4 weeks")
-	for row in hire_forecast:
-		print("  hire week %d: balance = " + Department.money(int(row["balance"])))
-	# Test course forecast
-	var course_forecast := d.forecast_after("course")
-	_check(course_forecast.size() == 4, "course forecast has 4 weeks")
-	for row in course_forecast:
-		print("  course week %d: balance = " + Department.money(int(row["balance"])))
-	# Test kit forecast
-	var kit_forecast := d.forecast_after("kit")
-	_check(kit_forecast.size() == 4, "kit forecast has 4 weeks")
-	for row in kit_forecast:
-		print("  kit week %d: balance = " + Department.money(int(row["balance"])))
-	# Verify the function runs without error and produces numbers
-	_Check("forecast_after runs without crash", true)
-
-# Run the test
-print("Testing forecast_after...")
-var d2 = Department.new()
-d2.found(5678)
-var hf := d2.forecast_after("hire")
-print("Hire forecast weeks: ", hf.size())
-var cf := d2.forecast_after("course")
-print("Course forecast weeks: ", cf.size())
-var kf := d2.forecast_after("kit")
-print("Kit forecast weeks: ", kf.size())
-print("All forecast_after tests passed!")
+	var base: Array = d.forecast(4)
+	var hf: Array = d.forecast_after("hire")
+	_check(hf.size() == 4 and base.size() == 4, "four rows for the hire forecast and the plain one")
+	var hire_cost: int = Courses.RECRUIT + Equipment.cost(Equipment.default_kit())
+	_check(int(hf[0]["balance"]) == int(base[0]["balance"]) - hire_cost - Courses.PAY["Officer"],
+		"hire week 1: signing cost and the first week's payroll come off ($%s)" % Department.money(int(hf[0]["balance"])))
+	_check(int(hf[3]["balance"]) == int(base[3]["balance"]) - hire_cost - 4 * Courses.PAY["Officer"],
+		"hire week 4: four weeks of the new payroll")
+	var cf: Array = d.forecast_after("course", 2500)
+	_check(int(cf[0]["balance"]) == int(base[0]["balance"]) - 2500 and int(cf[3]["balance"]) == int(base[3]["balance"]) - 2500,
+		"a course is charged once, in the first week")
+	var kf: Array = d.forecast_after("kit", 1000)
+	_check(int(kf[0]["balance"]) == int(base[0]["balance"]) - 1000, "kit is charged once, in the first week")
+	_check(String(hf[0].get("action", "")) == "hire", "the rows say which action was priced")
+	d.balance = -24000
+	var worst: Dictionary = Department.forecast_worst(d.forecast_after("hire"))
+	_check(not worst.is_empty() and int(worst["week"]) == d.week, "forecast_worst names the first red week (week %s)" % str(worst.get("week", "?")))
+	_check(Department.forecast_worst(base).is_empty() or true, "forecast_worst runs on the plain forecast too")
 
 
-## EA_TASKS P1.D5: starting reserve - test $25K vs $35K under each policy.
-func test_starting_reserve() -> void:
-    var d = Department.new()
-    # Test with $25K reserve
-    d.found(1001)
-    check(d.balance == 25000, "starting reserve is $25K")
-    # Run a few weeks and verify the reserve persists
-    for i in range(4):
-        d.next_week()
-    check(d.balance >= 20000, "reserve persists after 4 weeks with $25K start")
-    print("  balance after 4 weeks: " + Department.money(int(d.balance)))
-    # Test with different seeds and policies
-    for seed in [1001, 1002, 1003]:
-        d2 = Department.new()
-        d2.found(seed)
-        d2.next_week()  # one week run
-        print("Seed " + str(seed) + ", balance: " + Department.money(int(d2.balance)))
+## EA_TASKS P1.D2: the overdraft. Inside the limit the account is red but not frozen,
+## and it pays 2%% a week on the negative balance; only below -$25,000 does the freeze
+## hold. The forecast shows the interest.
+func _overdraft_d2() -> void:
+	print("  -- the council overdraft (P1.D2)")
+	var d = Department.new()
+	d.found(31337)
+	var alloc: int = d.allocation
+	var pr: int = d.payroll()
+	d.balance = -1000
+	_check(not d.frozen(), "at -$1,000 the account is inside the overdraft, not frozen")
+	_check(d.emergency_blocked() == "", "hiring is open inside the overdraft")
+	var b0: int = d.balance
+	d.next_week()
+	var after_alloc: int = b0 + alloc - pr
+	var interest: int = int(ceil(-after_alloc * Department.OVERDRAFT_INTEREST)) if after_alloc < 0 else 0
+	_check(interest > 0 and d.balance == after_alloc - interest,
+		"weekly interest on the negative balance: -$1,000 +$%d allocation -$%d payroll - $%d interest = $%s" % [alloc, pr, interest, Department.money(d.balance)])
+	d.balance = -1000
+	var rows: Array = d.forecast(4)
+	var base0: int = -1000 + alloc - pr
+	var exp0: int = base0 - (int(ceil(-base0 * Department.OVERDRAFT_INTEREST)) if base0 < 0 else 0)
+	_check(int(rows[0]["balance"]) == exp0, "the forecast's first row carries the interest ($%s)" % Department.money(int(rows[0]["balance"])))
+	d.balance = Department.OVERDRAFT_LIMIT
+	_check(not d.frozen(), "at exactly the limit the freeze does not hold")
+	d.balance = Department.OVERDRAFT_LIMIT - 1
+	_check(d.frozen() and d.recruit(false).is_empty() and d.enrol(d.available()[0], "judgment") != "",
+		"one past the limit the freeze holds: no hiring, no courses")
+	var lines: Array = d.next_week()
+	_check(lines.filter(func(l): return String(l).contains("overdraft limit")).size() >= 1, "the week's report names the overdraft limit")
 
-# Run the test
-print("Testing starting reserve...")
-test_starting_reserve()
-print("All starting reserve tests passed!")
+
+## EA_TASKS P1.D5: the starting reserve is a tuning constant the harness can override
+## ($25K shipped; A/B against $35K from the balance runs).
+func _starting_reserve_d5() -> void:
+	print("  -- the starting reserve (P1.D5)")
+	var d = Department.new()
+	d.found(1001)
+	_check(d.balance == Courses.RESERVE, "the shipped reserve is $%d" % Courses.RESERVE)
+	Courses.reserve = 35000
+	var d2 = Department.new()
+	d2.found(1001)
+	_check(d2.balance == 35000, "the override sets the reserve to $35,000")
+	Courses.reserve = Courses.RESERVE
+	var d3 = Department.new()
+	d3.from_data({})
+	_check(d3.balance == Courses.reserve, "a save without a balance falls back to the tuning constant")

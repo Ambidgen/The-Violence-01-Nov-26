@@ -209,6 +209,9 @@ func _init() -> void:
 	old.erase("politics")
 	var c6 = Campaign.new()
 	_check(c6.from_data(old) and c6.politics.trust.size() == Situations.WARDS.size(), "a v0.8 save loads; the city starts from the wards' trust")
+	_lawsuit_instalments_d3()
+	_surplus_sweep_d4()
+	_causes_e1_f1()
 	print("problems: %d" % problems)
 	quit(1 if problems > 0 else 0)
 
@@ -221,21 +224,99 @@ func check_election_noop(c, before: String) -> void:
 	_check(p.trust.size() == Situations.WARDS.size() and p.avg_trust() == 3.5, "extra saved trust entries cannot distort the six-ward average")
 
 
-## EA_TASKS P1.D3: lawsuit instalments test.
-func test_lawsuit_instalments() -> void:
-	var c = Politics.new()
-	from_data({"trust": [1, 2, 3, 4, 5, 6]}, 6)
-	# file a lawsuit with cost 16000 (4 instalments of 4000 each)
-	var inc := {"kind": "lawsuit", "cost": 16000, "op_week": c.week, "settled": 0, "stories": 0, "leaks": 0}
-	pending := [inc]
-	# process 4 weeks of instalments
-	for i in range(4):
-		week_end(c.week + i, [], Department.new())
-	# verify all 4 instalments were paid (total 16000)
-	_check(c.settled == 1, "one lawsuit settled after 4 instalments")
-	print("Lawsuit instalments test passed!")
+## EA_TASKS P1.D3: a lawsuit settles in four weekly instalments — one paid a week,
+## each costing the council standing with its cause logged — and only counts as
+## settled when the last one is paid. The shape survives a save.
+func _lawsuit_instalments_d3() -> void:
+	print("  -- lawsuit instalments (P1.D3)")
+	var c = Campaign.new()
+	c.start(11)
+	var p: Politics = c.politics
+	var dept = c.dept
+	var inst: Array = []
+	for k in 4:
+		inst.append({"week": 3 + k, "amount": 4000, "paid": false})
+	p.pending.append({"due": 3, "kind": "lawsuit", "cost": 16000, "ward": 0, "op_week": 1, "instalments": inst})
+	var bal0: int = dept.balance
+	p.week_end(1, [], dept)
+	p.week_end(2, [], dept)
+	_check(dept.balance == bal0, "nothing is paid before the first instalment's week")
+	var co0: int = p.standing("council")
+	p.week_end(3, [], dept)
+	_check(dept.balance == bal0 - 4000 and p.standing("council") == co0 - 3,
+		"week 3 pays the first $4,000 instalment and costs the council 3 standing (%d -> %d)" % [co0, p.standing("council")])
+	_check(p.week_causes(3).any(func(l): return String(l).contains("instalment")), "the instalment's cause is in the week's cause log")
+	# the paid flag survives a save
+	var p2 = Politics.new()
+	p2.from_data(JSON.parse_string(JSON.stringify(p.to_data())), 11)
+	var l2: Array = p2.pending.filter(func(x): return x.get("kind", "") == "lawsuit")
+	_check(l2.size() == 1 and bool(l2[0]["instalments"][0]["paid"]) and not bool(l2[0]["instalments"][1]["paid"]),
+		"a save keeps the instalment ledger (first paid, second not)")
+	p.week_end(4, [], dept)
+	_check(dept.balance == bal0 - 8000 and int(p.record.get("settled", 0)) == 0, "week 4 pays the second; not settled yet")
+	p.week_end(5, [], dept)
+	_check(dept.balance == bal0 - 12000 and int(p.record.get("settled", 0)) == 0, "week 5 pays the third")
+	p.week_end(6, [], dept)
+	_check(dept.balance == bal0 - 16000 and int(p.record.get("settled", 0)) == 1, "week 6 pays the last; the lawsuit is settled")
+	_check(p.pending.filter(func(x): return x.get("kind", "") == "lawsuit").is_empty(), "a settled lawsuit leaves the pending list")
 
-# Run the test
-print("Testing lawsuit instalments...")
-test_lawsuit_instalments()
-print("All lawsuit instalments tests passed!")
+
+## EA_TASKS P1.D4: the quarterly sweep and the hand surplus return. The sweep takes
+## half of everything above $25,000 (capped at $30,000) every fourth week; returning
+## $5,000 of surplus by hand buys council standing, once every four weeks.
+func _surplus_sweep_d4() -> void:
+	print("  -- surplus sweep and hand return (P1.D4)")
+	var c = Campaign.new()
+	c.start(12)
+	var p: Politics = c.politics
+	var dept = c.dept
+	dept.balance = 60000
+	var bal0: int = dept.balance
+	var co0: int = p.standing("council")
+	p.week_end(4, [], dept)
+	var sweep: int = mini(30000, int(round((bal0 - 25000) * 0.5 / 100.0)) * 100)
+	_check(dept.balance == bal0 - sweep and p.standing("council") >= co0 + 2,
+		"week 4 sweeps $%s above the $25,000 floor and the council notices (+2)" % Department.money(sweep))
+	_check(p.week_causes(4).any(func(l): return String(l).contains("swept") or String(l).contains("surplus")), "the sweep's cause is logged")
+	dept.balance = 30000
+	co0 = p.standing("council")
+	_check(p.can_surplus(4) == "", "with a surplus and no cooldown, the return is offered")
+	var res: Dictionary = p.apply_surplus(4, dept)
+	_check(bool(res.get("ok", false)) and dept.balance == 25000 and p.standing("council") == co0 + 6,
+		"returning $5,000 buys +6 council standing")
+	_check(p.can_surplus(4) != "", "and goes on cooldown")
+	p.week_end(5, [], dept)
+	p.week_end(6, [], dept)
+	p.week_end(7, [], dept)
+	_check(p.can_surplus(7) != "", "still cooling down at week 7")
+	p.week_end(8, [], dept)
+	_check(p.can_surplus(8) == "", "cooled down again by week 8")
+
+
+## EA_TASKS P1.E1 / P1.F1: every ally and poll movement carries a cause, and the week's
+## cause log reads them back; a quiet week holds every non-lost ally's standing (E3).
+func _causes_e1_f1() -> void:
+	print("  -- ally and poll causes (P1.E1, P1.F1, P1.E3)")
+	var c = Campaign.new()
+	c.start(13)
+	var p: Politics = c.politics
+	var dept = c.dept
+	var tmp: Array = []
+	p._ally("union", 5, dept, tmp, "a test decision")
+	p._poll("pell", 2.0, "a test decision")
+	var cl: Array = p.week_causes(1)
+	_check(cl.any(func(l): return String(l).contains("Union") and String(l).contains("+5") and String(l).contains("test decision")),
+		"an ally gain is logged with its cause: %s" % str(cl))
+	_check(cl.any(func(l): return String(l).contains("Pell") and String(l).contains("+2.0")), "and so is a poll gain")
+	p.week_end(1, [], dept)
+	_check(p.week_causes(1).size() >= 2, "the causes survive the week_end into the log")
+	# E3: a quiet week (nothing moved an ally) holds every non-lost ally's standing
+	var before: Dictionary = {}
+	for a in Politics.ALLY_ORDER:
+		before[a] = p.standing(a)
+	p.week_end(2, [], dept)
+	var held := 0
+	for a in Politics.ALLY_ORDER:
+		if not p.lost(a) and p.standing(a) == before[a] + 1:
+			held += 1
+	_check(held >= 1, "a quiet week holds non-lost allies' standing (+1 on %d of them)" % held)

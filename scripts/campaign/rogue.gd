@@ -183,6 +183,21 @@ const OFFERS := [
 		"accept": {"chance": {"p": 0.55, "text": "the session", "win": {"trust": 3, "poll": {"pell": 0.5}, "ally": {"coalition": 5}},
 			"lose": {"trust": -1, "poll": {"okonjo": 1.5}, "headline": ["CHIEF SHOUTED DOWN IN EASTPORT", "'Say the names,' the room chanted."]}}},
 		"decline": {"poll": {"okonjo": 0.8}}},
+	# EA_TASKS P1.D4: late-game sinks with real effects, dealt like any other offer.
+	{"id": "range_build", "who": "diaz", "min": 10,
+		"text": "Councillor Diaz has a state grant for a training range on the old Foundry Road lot — if the department pays the construction balance itself.",
+		"accept": {"money": -8000, "range": true, "trust_ward": [3, 4], "ally": {"council": 3},
+			"headline": ["PORT CARRICK PD OPENS ITS OWN TRAINING RANGE", "Diaz: 'The county range is forty minutes away. This one is not.'"]},
+		"decline": {}},
+	{"id": "union_contract", "who": "union", "min": 12,
+		"text": "Tommy Rourke can hold the room for a contract: a one-time payment now, and the morale floor of this department rises for good.",
+		"accept": {"money": -6000, "morale_floor": 10, "ally": {"union": 10}, "morale": 4,
+			"headline": ["POLICE SIGN UNION CONTRACT", "Rourke: 'The floor is the floor. It does not move again.'"]},
+		"decline": {"ally": {"union": -3}}},
+	{"id": "return_surplus", "who": "council", "min": 6,
+		"text": "Marguerite Duff notes, quietly, that the department's account is getting heavy. Return $5,000 of surplus to the city and the committee will remember it.",
+		"accept": {"money": -5000, "ally": {"council": 6}},
+		"decline": {}},
 ]
 
 ## Events: two to four responses, answered before the week can end. {officer} names an
@@ -325,6 +340,18 @@ const EVENTS := [
 const OFFER_P := 0.4
 const EVENT_P := 0.55
 
+## EA_TASKS P1.E2: reconciliation — a lost ally can be won back. At most one offer every
+## RECONCILE_COOLDOWN weeks, one per ally per run, at a big price.
+const RECONCILE_COST := 15000
+const RECONCILE_STANDING := 20
+const RECONCILE_COOLDOWN := 4
+
+## EA_TASKS P1.D4: tier-3 training programs (tactical habits) join the program drafts from
+## this week on, at a higher price.
+const PROGRAM_TIER3_WEEK := 20
+const PROGRAM_TIER3_MULT := 1.5
+const PROGRAM_TIER3 := ["PF04", "ED03", "ED05", "WD02", "ED10"]
+
 var rng := RandomNumberGenerator.new()
 ## The replacement stream (EA_TASKS P0.C2). Re-dealing a draft card after a stocking
 ## change draws from here and never from `rng`, so the rest of the desk — offers,
@@ -340,10 +367,12 @@ var events: Array = []        # unanswered: [{...event, week, officer_id, office
 var later: Array = []         # delayed effects: [{due, text, effects}]
 var intel_weeks := 0          # weeks left with a free tip on every new situation
 var quiet_weeks := 0          # weeks left with no gang raids on the board
-var desk_log: Array = []      # [{week, text}] what the desk decided
+var desk_log: Array = []       # [{week, text}] what the desk decided
 var seen: Dictionary = {}     # offer and event ids already dealt (each once per run)
 var doctrine := ""
-var unlocked: Array = []      # doctrine ids this run could draw from
+var unlocked: Array = []     # doctrine ids this run could draw from
+var last_reconcile := -99    # EA_TASKS P1.E2: week of the last reconciliation offer
+var reconciled := {}         # EA_TASKS P1.E2: ally ids offered reconciliation this run
 
 
 ## Two independent streams from one seed: the desk's (rng) and the replacement
@@ -370,6 +399,8 @@ func start(seed_v: int, legacy: Dictionary = {}) -> void:
 	seen = {}
 	doctrine = ""
 	unlocked = unlocked_doctrines(legacy)
+	last_reconcile = -99
+	reconciled = {}
 
 
 # ================================================================== the armoury
@@ -494,8 +525,37 @@ func on_week_start(c) -> Array:
 		var e: Dictionary = _deal_event(c)
 		if not e.is_empty():
 			events.append(e)
+	lines.append_array(_maybe_reconcile(c))
 	if not drafts.is_empty() or not offers.is_empty() or not events.is_empty():
 		lines.append("On your desk: %s." % desk_summary())
+	return lines
+
+
+## EA_TASKS P1.E2: a lost ally gets a reconciliation offer — at most one every
+## RECONCILE_COOLDOWN weeks, and one per ally per run. Accepting restores the standing
+## past the regain threshold (the "reconcile" effect in apply()).
+func _maybe_reconcile(c) -> Array:
+	var lines: Array = []
+	var week: int = c.week()
+	if week - last_reconcile < RECONCILE_COOLDOWN:
+		return lines
+	for a in Politics.ALLY_ORDER:
+		if not c.politics.lost(a) or reconciled.has(a):
+			continue
+		reconciled[a] = true
+		last_reconcile = week
+		var o := {"id": "reconcile_%s" % a, "who": a, "week": week, "who_name": _who_name(a),
+			"text": "%s will take the department back — on paper, at least: $%s in costs, meetings and apologies, and the standing is restored." % [
+				Politics.ALLIES[a]["name"], _money(RECONCILE_COST)],
+			"accept": {"money": -RECONCILE_COST, "reconcile": a,
+				"headline": ["%s RECONCILES WITH THE DEPARTMENT" % String(Politics.ALLIES[a]["name"]).to_upper(),
+					"The chief paid for the seat at the table. The table is small."]},
+			"decline": {"ally": {a: -2}}}
+		seen[o["id"]] = true
+		offers.append(o)
+		lines.append("On your desk: a reconciliation offer from %s." % o["who_name"])
+		_log(week, "Reconciliation offered to %s." % a)
+		break   # at most one every RECONCILE_COOLDOWN weeks
 	return lines
 
 
@@ -582,9 +642,12 @@ func program_info(pid: String, c) -> Dictionary:
 		return {"name": sp["name"], "desc": sp["desc"], "cost": cost, "weeks": int(sp["weeks"]), "tag": sp["tag"]}
 	var h: Dictionary = _habit(pid)
 	var lacking: int = _force(c).filter(func(r): return not (r["good"] as Array).has(pid)).size()
+	var tier3: bool = PROGRAM_TIER3.has(pid) and c.week() >= PROGRAM_TIER3_WEEK
+	if tier3:
+		cost = int(round(cost * PROGRAM_TIER3_MULT))   # P1.D4: repriced tier-3 program
 	return {"name": "%s (%s)" % [h.get("name", pid), pid], "desc": "%s %d of %d officers lack it. Without it: %s" % [
 		h.get("with", ""), lacking, n, h.get("without", "")], "cost": cost, "weeks": 2 + (1 if String(pid).begins_with("HD") else 0) + (hash(pid) % 2),
-		"tag": "restraint" if pid in ["ED04", "WD09", "WD10", "GD03"] else "neutral", "group": h.get("group", "")}
+		"tag": "restraint" if pid in ["ED04", "WD09", "WD10", "GD03"] else ("military" if tier3 else "neutral"), "group": h.get("group", "")}
 
 
 static func _habit(pid: String) -> Dictionary:
@@ -605,6 +668,8 @@ static func item_name(it: String) -> String:
 		return String(Equipment.ARMOUR[it]["name"])
 	if Equipment.HEAD.has(it):
 		return String(Equipment.HEAD[it]["name"])
+	if Equipment.CAPITAL.has(it):
+		return String(Equipment.CAPITAL[it]["name"])
 	return it
 
 
@@ -633,6 +698,11 @@ func _program_cards(c) -> Array:
 	for sp in SPECIAL_PROGRAMS:
 		if not programs_done.has(sp):
 			weights[sp] = 1.6
+	# EA_TASKS P1.D4: from PROGRAM_TIER3_WEEK on, the repriced tier-3 habits are on the menu.
+	if c.week() >= PROGRAM_TIER3_WEEK:
+		for t3 in PROGRAM_TIER3:
+			if not programs_done.has(t3) and not academy.has(t3):
+				weights[t3] = 1.2
 	var cards: Array = []
 	for k in DRAFT_N:
 		var tot := 0.0
@@ -674,8 +744,10 @@ func pick(c, di: int, cid: String) -> Array:
 				if contract_stocked(cid):
 					_log(week, "Declined a redundant contract: %s (already stocked)." % ct["name"])
 					return ["%s is already in the armoury. No contract is needed, and nothing is charged." % ct["name"]]
-				if c.dept.balance < int(ct["cost"]):
-					return ["The account cannot cover the %s contract ($%s)." % [ct["name"].to_lower(), c.dept.money(int(ct["cost"]))]]
+				# P1.D2: the council's overdraft carries a purchase, but not past its limit.
+				if c.dept.balance - int(ct["cost"]) < c.dept.OVERDRAFT_LIMIT:
+					return ["The account cannot cover the %s contract ($%s): past that, the overdraft limit (-$%s) holds." % [
+						ct["name"].to_lower(), c.dept.money(int(ct["cost"])), c.dept.money(-c.dept.OVERDRAFT_LIMIT)]]
 				c.dept.spend("Contract: %s" % ct["name"], int(ct["cost"]))
 				lines.append_array(_sign(c, cid, true))
 		"program":
@@ -684,8 +756,9 @@ func pick(c, di: int, cid: String) -> Array:
 				_log(week, "Passed on a training program.")
 			else:
 				var info: Dictionary = program_info(cid, c)
-				if c.dept.balance < int(info["cost"]):
-					return ["The account cannot cover %s ($%s)." % [info["name"], c.dept.money(int(info["cost"]))]]
+				if c.dept.balance - int(info["cost"]) < c.dept.OVERDRAFT_LIMIT:
+					return ["The account cannot cover %s ($%s): past that, the overdraft limit (-$%s) holds." % [
+						info["name"], c.dept.money(int(info["cost"])), c.dept.money(-c.dept.OVERDRAFT_LIMIT)]]
 				c.dept.spend("Program: %s" % info["name"], int(info["cost"]))
 				program = {"id": cid, "name": info["name"], "weeks_left": int(info["weeks"]), "started": week}
 				lines.append("%s begins: %d weeks of in-service training for the whole force." % [info["name"], int(info["weeks"])])
@@ -705,6 +778,10 @@ func _sign(c, cid: String, bought: bool) -> Array:
 	var lines: Array = []
 	contracts.append(cid)
 	stock(ct["items"])
+	if Equipment.CAPITAL.has(cid):
+		c.dept.capital[cid] = true
+		if cid == "arv":
+			lines.append("The armoured rescue vehicle is in service: on a gang raid it carries the first officer downed out alive.")
 	lines.append("%s %s: %s in the armoury." % [ct["name"], "contract signed" if bought else "arrive", ", ".join(ct["items"].map(func(i): return item_name(i)))])
 	_log(c.week(), "Armoury: %s." % ct["name"])
 	_tag(c, String(ct["tag"]), lines)
@@ -919,9 +996,11 @@ func answer_offer(c, oi: int, accept: bool) -> Array:
 	offers.remove_at(oi)
 	var lines: Array = ["%s %s's offer." % ["Accepted" if accept else "Declined", o["who_name"]]]
 	var eff: Dictionary = o["accept"] if accept else o.get("decline", {})
-	if accept and int(eff.get("money", 0)) < 0 and int(c.dept.balance) < -int(eff["money"]):
+	# P1.E2 / P1.D2: an offer may be paid into the council's overdraft, but not past its limit.
+	if accept and int(eff.get("money", 0)) < 0 and int(c.dept.balance) + int(eff["money"]) < c.dept.OVERDRAFT_LIMIT:
 		offers.insert(oi, o)
-		return ["The account cannot cover it ($%s)." % c.dept.money(-int(eff["money"]))]
+		return ["The account cannot cover it ($%s): past that, the overdraft limit (-$%s) holds." % [
+			c.dept.money(-int(eff["money"])), c.dept.money(-c.dept.OVERDRAFT_LIMIT)]]
 	lines.append_array(apply(c, eff, o))
 	_log(c.week(), lines[0])
 	c.dept.note("Desk: %s" % " ".join(lines))
@@ -1041,6 +1120,21 @@ func apply(c, eff: Dictionary, ctx: Dictionary) -> Array:
 		lines.append("%s joins the academy (a grant place)." % r["name"])
 	if eff.get("bodycams", false):
 		d.bodycams = true
+	if eff.get("range", false) and not d.has_range:
+		d.has_range = true
+		lines.append("The department now has its own training range: courses cost a quarter less and finish a week sooner.")
+		_log(week, "Training range built.")
+	if int(eff.get("morale_floor", 0)) > 0:
+		d.morale_home = mini(100, int(d.morale_home) + int(eff["morale_floor"]))
+		lines.append("The union contract raises the morale floor to %d for good." % int(d.morale_home))
+		_log(week, "Union contract: morale floor %d." % int(d.morale_home))
+	if eff.has("reconcile"):
+		var ra: String = String(eff["reconcile"])
+		# enough to cross the regain line even from the floor, plus the agreed standing
+		var need: int = maxi(Politics.REGAINED + 5 - pol.standing(ra), 0)
+		pol._ally(ra, maxi(RECONCILE_STANDING, need), d, lines, "a reconciliation accepted ($%s)" % _money(RECONCILE_COST))
+		if not pol.lost(ra):
+			lines.append("%s is back: the standing is %d, past the line." % [Politics.ALLIES[ra]["name"], pol.standing(ra)])
 	if eff.has("officer"):
 		lines.append_array(_officer_effect(c, eff["officer"], ctx))
 	if eff.has("headline"):
@@ -1153,7 +1247,14 @@ static func run_score(c) -> Dictionary:
 	}
 	var res: Dictionary = c.politics.result
 	var kept: bool = bool((res.get("ending", {}) as Dictionary).get("keep", false)) if res.get("ending", {}) is Dictionary else false
-	parts["the election"] = 60 if kept else 0
+	# EA_TASKS P1.F2: Kettering's victory pays +60 only when the record is clean — few
+	# officers killed and few force findings against the department; a violent record
+	# still wins the seat, but for +20.
+	var officers_killed: int = int(rec.get("officers_killed", 0))
+	var civ_killed: int = int(rec.get("civ_killed", 0)) + int(rec.get("crowd_killed", 0))
+	var findings: int = int(rec.get("excessive", 0)) + int(rec.get("civ_hit", 0)) + int(rec.get("unattended", 0))
+	var clean := officers_killed <= 2 and civ_killed <= 6 and findings <= 6
+	parts["the election"] = (60 if clean else 20) if kept else 0
 	var total := 0
 	for k in parts:
 		total += int(parts[k])
@@ -1212,7 +1313,8 @@ func to_data() -> Dictionary:
 		"programs_done": programs_done.duplicate(), "program": program.duplicate(true), "drafts": drafts.duplicate(true),
 		"offers": offers.duplicate(true), "events": events.duplicate(true), "later": later.duplicate(true),
 		"intel_weeks": intel_weeks, "quiet_weeks": quiet_weeks, "log": desk_log.duplicate(true), "seen": seen.duplicate(true),
-		"doctrine": doctrine, "unlocked": unlocked.duplicate()}
+		"doctrine": doctrine, "unlocked": unlocked.duplicate(),
+		"last_reconcile": last_reconcile, "reconciled": reconciled.duplicate()}
 
 
 func from_data(d: Dictionary, seed_v: int) -> void:
@@ -1240,6 +1342,8 @@ func from_data(d: Dictionary, seed_v: int) -> void:
 	seen = d.get("seen", {}) if d.get("seen", {}) is Dictionary else {}
 	doctrine = String(d.get("doctrine", ""))
 	unlocked = _arr(d, "unlocked", DOCTRINE_ORDER.slice(0, DOCTRINE_BASE))
+	last_reconcile = int(d.get("last_reconcile", -99))
+	reconciled = d.get("reconciled", {}) if d.get("reconciled", {}) is Dictionary else {}
 	Equipment.armory = armory_set()
 	# A draft saved before the fix may still hold a card the armoury already covers
 	# (a run saved between picking the inheritance and signing a contract).

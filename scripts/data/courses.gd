@@ -11,8 +11,15 @@ const MORALE_FLOOR_UP := 10  # union contract raises the morale floor by this ma
 const SENIORITY := 0.015
 ## The allocation is the inherited payroll plus this much headroom.
 const HEADROOM := 0.16
-## EA_TASKS P1.D5: starting reserve is a tuning constant.
-const RESERVE := 25000          # in the account at the handover (P1.D5: test $25K vs $35K)
+## EA_TASKS P1.D5: starting reserve is a tuning constant. RESERVE is the shipped default;
+## the balance harness can override it per run (--reserve=) to A/B $25K against $35K.
+const RESERVE := 25000          # in the account at the handover
+static var reserve := RESERVE   # the value found()/from_data actually use
+
+## EA_TASKS P1.D4: with the department's own training range, courses cost a quarter less
+## and finish a week sooner (at least one week).
+const RANGE_DISCOUNT := 0.75
+const RANGE_WEEKS_OFF := 1
 
 ## Overtime (Q8, Q10): a callout minimum plus time on target, instead of a flat
 ## $160 a head however long ten officers stood at a rally. A short raid (40 s) bills

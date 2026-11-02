@@ -155,6 +155,13 @@ const GEAR := {
 const LESS_ORDER := ["oc_spray", "taser", "pepperball", "launcher", "beanbag", "baton"]
 const THROWN := ["flashbang", "stingball", "gas"]
 
+## Capital items: bought once, not carried in a kit, but stocked in the armoury so the
+## procurement layer treats them like any other contract line (EA_TASKS P1.D4).
+const CAPITAL := {
+	"arv": {"name": "Armoured rescue vehicle",
+		"desc": "An armoured truck that carries a downed officer out of a gang raid alive."},
+}
+
 const GEAR_ORDER := ["flashbang", "stingball", "gas", "ram", "breach", "shield", "light", "medkit", "gas_mask",
 	"oc_spray", "baton", "taser", "pepperball", "launcher", "beanbag"]
 const PRIMARY_ORDER := ["carbine", "sbr", "smg", "shotgun", "battle_rifle", "marksman", "assault_rifle"]

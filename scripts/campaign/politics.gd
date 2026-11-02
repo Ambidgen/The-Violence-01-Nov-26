@@ -62,8 +62,12 @@ var press: Array = []          # [{week, head, body, kind}]
 var record := {}               # running totals the press and the endings quote
 var ended := false
 var last_grant := -99          # week of the last city grant (Q8)
+var last_surplus := -99        # week of the last surplus returned by hand (P1.D4)
 var result := {}               # the election, once held
 var rng := RandomNumberGenerator.new()
+var cur_week := 1              # the week being processed, for the logs below
+var ally_log: Array = []       # P1.E1: every ally standing change, with its cause
+var poll_log: Array = []       # P1.F1: the poll moves that had a named cause
 
 
 func start(seed_v: int) -> void:
@@ -135,18 +139,30 @@ func week_press(week: int) -> Array:
 	return press.filter(func(p): return p is Dictionary and _int_of(p.get("week", -1)) == week)
 
 
+## EA_TASKS P1.F1: the poll moves of one week that had a named cause, as readable lines.
+func week_causes(week: int) -> Array:
+	var out: Array = []
+	for e in ally_log:
+		if e is Dictionary and _int_of(e.get("week", -1)) == week:
+			out.append("%s %+d — %s" % [String(ALLIES.get(String(e.get("ally", "")), {}).get("name", String(e.get("ally", "")))),
+				_int_of(e.get("delta", 0)), String(e.get("cause", ""))])
+	for e in poll_log:
+		if e is Dictionary and _int_of(e.get("week", -1)) == week:
+			out.append("%s %+.1f — %s" % [String(CANDIDATES.get(String(e.get("cand", "")), {}).get("name", String(e.get("cand", "")))),
+				_float_of(e.get("delta", 0.0)), String(e.get("cause", ""))])
+	return out
+
+
 # ================================================================== moving it
-## EA_TASKS P1.E1: log every ally standing change with cause, week and delta into weeks.csv.
-	func _ally(a: String, d: int, dept, lines: Array) -> void:
+## EA_TASKS P1.E1: every ally standing change is logged with week, delta and cause
+## (ally_log, saved with the campaign and dumped by the balance harness), and applied.
+func _ally(a: String, d: int, dept, lines: Array, cause := "") -> void:
 	var al: Dictionary = _ally_rec(a)
 	al["standing"] = clampi(_int_of(al.get("standing", 0)) + d, 0, 100)
-	# log the change
-	var log_entry := {"week": week, "ally": a, "delta": d, "standing": al["standing"], "lost": al["lost"]}
-	# write to weeks.csv (append mode)
-	var f := FileAccess.open("user://weeks.csv", FileAccess.WRITE)
-	if f != null:
-		f.store_line(String(week) + "," + a + "," + String(d) + "," + String(al["standing"]) + "," + (al["lost"] ? "true" : "false"))
-		f.close()
+	ally_log.append({"week": cur_week, "ally": a, "delta": d, "standing": int(al["standing"]),
+		"lost": bool(al.get("lost", false)), "cause": String(cause)})
+	if ally_log.size() > 400:
+		ally_log = ally_log.slice(ally_log.size() - 400)
 	if not al["lost"] and int(al["standing"]) < LOST:
 		al["lost"] = true
 		lines.append("LOST: %s (%s). %s" % [ALLIES[a]["name"], ALLIES[a]["title"], ALLIES[a]["lost"]])
@@ -214,6 +230,7 @@ func can_grant(week: int) -> String:
 ## Ask, and be given: $GRANT_AMOUNT into the account, the favour spent. Returns
 ## {ok, line} — the line reads the same in the budget screen and the department log.
 func apply_grant(week: int, dept) -> Dictionary:
+	cur_week = week
 	var why := can_grant(week)
 	if why != "" or dept == null:
 		return {"ok": false, "line": "No grant: " + (why if why != "" else "no department") + "."}
@@ -221,9 +238,34 @@ func apply_grant(week: int, dept) -> Dictionary:
 	last_grant = week
 	record["grants"] = int(record.get("grants", 0)) + 1
 	var lines: Array = []
-	_ally("council", -GRANT_FAVOUR, dept, lines)
+	_ally("council", -GRANT_FAVOUR, dept, lines, "asking for a city grant")
 	_headline(week, "CITY GRANT KEEPS PORT CARRICK PD SOLVENT", "Duff (budget chair): 'One-time money. Do not make a habit of needing it.'", "money")
 	var line := "The budget committee awards the department a $%s grant. Duff's goodwill is spent asking (%d)." % [dept.money(GRANT_AMOUNT), standing("council")]
+	dept.note(line)
+	return {"ok": true, "line": line}
+
+
+## EA_TASKS P1.D4: return surplus to the council by hand — a player lever that buys the
+## budget chair's standing, alongside the committee's automatic quarterly sweep.
+func can_surplus(week: int) -> String:
+	if lost("council"):
+		return "Marguerite Duff is lost: the committee will not take it back"
+	if week - last_surplus < SURPLUS_COOLDOWN:
+		return "the committee took a return in week %d; week %d at the earliest" % [last_surplus, last_surplus + SURPLUS_COOLDOWN]
+	return ""
+
+
+func apply_surplus(week: int, dept) -> Dictionary:
+	cur_week = week
+	var why := can_surplus(week)
+	if why != "" or dept == null or dept.balance < SURPLUS_AMOUNT:
+		return {"ok": false, "line": "No surplus returned: " + (why if why != "" else "the account cannot spare $%s" % dept.money(SURPLUS_AMOUNT)) + "."}
+	dept.spend("Surplus returned to the city", SURPLUS_AMOUNT)
+	last_surplus = week
+	record["surplus"] = int(record.get("surplus", 0)) + 1
+	var lines: Array = []
+	_ally("council", SURPLUS_STANDING, dept, lines, "surplus returned to the city")
+	var line := "$%s of surplus goes back to the city; the budget chair notes it (%d standing)." % [dept.money(SURPLUS_AMOUNT), standing("council")]
 	dept.note(line)
 	return {"ok": true, "line": line}
 
@@ -243,6 +285,7 @@ func _story_delay(vis: int, strength: String) -> int:
 ## world (its incident record). Returns readable lines for the debrief.
 func on_operation(week: int, sit: Dictionary, res: Dictionary, w, dept) -> Array:
 	var lines: Array = []
+	cur_week = week
 	var vis: int = int(sit.get("visibility", 1))
 	var wi: int = int(sit.get("ward_i", -1))
 	var s: Dictionary = w.incident.summary() if w.incident != null else {}
@@ -308,21 +351,20 @@ func on_operation(week: int, sit: Dictionary, res: Dictionary, w, dept) -> Array
 	if off_killed > 0:
 		_ally("union", -4 * off_killed, dept, lines)
 		_ally("council", -2 * off_killed, dept, lines)
-\## EA_TASKS P1.F1: strengthen poll response to harm, neglect and restraint.
-	## restraint: officer killed should increase Kettering's poll
-	_poll("kettering", 2.0 * off_killed)
+		# EA_TASKS P1.F1: the record moves the race — dead officers are the law-and-order gift
+		_poll("kettering", 2.0 * off_killed, "%d officer%s killed in %s" % [off_killed, "" if off_killed == 1 else "s", where])
 		_headline(week, "%s OFFICER%s KILLED IN %s" % [_num(off_killed), "" if off_killed == 1 else "S", where.to_upper()],
 			"The department lowers its flags. Rourke (union): 'Somebody sent them in there.'", "op")
 	if sus_killed > 0 and vis >= 2:
-		_poll("okonjo", 0.4 * sus_killed * vis)
+		_poll("okonjo", 0.4 * sus_killed * vis, "%d suspect%s killed in %s" % [sus_killed, "" if sus_killed == 1 else "s", where])
 		_trust(wi, -sus_killed)
 	# a rally that turned to killing is the city's front page whatever happened next
 	if crowd_killed > 0:
-		_ally("council", -10, dept, lines)
-		_ally("coalition", -6, dept, lines)
-		_poll("okonjo", 3.0 * crowd_killed)
-		_poll("kettering", 2.0 * crowd_killed)
-		_poll("pell", -3.0)
+		_ally("council", -8, dept, lines, "%d killed at %s" % [crowd_killed, sit.get("site_name", "a public event")])
+		_ally("coalition", -6, dept, lines, "%d killed at %s" % [crowd_killed, sit.get("site_name", "a public event")])
+		_poll("okonjo", 3.0 * crowd_killed, "%d killed at %s" % [crowd_killed, sit.get("site_name", "a public event")])
+		_poll("kettering", 2.0 * crowd_killed, "%d killed at %s" % [crowd_killed, sit.get("site_name", "a public event")])
+		_poll("pell", -3.0, "%d killed at %s" % [crowd_killed, sit.get("site_name", "a public event")])
 		_trust(wi, -8)
 		var place := String(sit.get("site_name", "public event")).to_upper()
 		_headline(week, "%s KILLED AT %s" % [_num(crowd_killed).to_upper(), place], "The rally was over before the ambulances left. Pell calls for a review; Okonjo-Vale asks who signed the plan.", "op")
@@ -343,8 +385,15 @@ func on_operation(week: int, sit: Dictionary, res: Dictionary, w, dept) -> Array
 		# a lawsuit follows anyone hit, whether or not the papers do
 		if civ_hit + civ_killed > 0:
 			var cost: int = 10000 * maxi(0, civ_hit - civ_killed) + 40000 * civ_killed
-			pending.append({"due": week + rng.randi_range(6, 10), "kind": "lawsuit", "cost": cost, "ward": where, "op_week": week})
-			lines.append("A lawsuit is being filed (it will settle in a couple of months).")
+			# EA_TASKS P1.D3: it settles in four weekly instalments, not one hit
+			var d0: int = week + rng.randi_range(6, 10)
+			var share: int = int(ceil(cost / 4.0))
+			var inst: Array = []
+			for k in 4:
+				var amt: int = share if k < 3 else cost - 3 * share
+				inst.append({"week": d0 + k, "amount": amt, "paid": false})
+			pending.append({"due": d0, "kind": "lawsuit", "cost": cost, "ward": where, "op_week": week, "instalments": inst})
+			lines.append("A lawsuit is being filed; it will settle in four weekly instalments from week %d." % d0)
 	return lines
 
 
@@ -378,12 +427,14 @@ static func leak_p(strength: String, integrity: int, statement := "untested") ->
 ## coalition watches the cases, and the DA watches what is cleared.
 func on_decision(week: int, c: Dictionary, decision: String, dept) -> Array:
 	var lines: Array = []
+	cur_week = week
 	var strong: bool = String(c.get("strength", "none")) in ["video", "witness"]
 	var serious: bool = String(c.get("kind", "")) in ["civilian_hit_by_police", "excessive_force"]
+	var cause := "an internal-affairs decision (%s on %s)" % [decision, String(c.get("id", ""))]
 	match decision:
 		"clear":
 			record["cleared"] += 1
-			_ally("union", 2, dept, lines)
+			_ally("union", 2, dept, lines, cause)
 			if serious and strong:
 				# what the file says about the officer's own account (Q3)
 				var integ: int = int(c.get("integrity", 60))
@@ -443,39 +494,57 @@ func week_end(week: int, board: Array, dept) -> Array:
 		# v0.9.1: a quiet warrant left for next week barely registers; a crew house or a
 		# hostage taking left alone, or anything people were watching, does
 		_trust(wi, -2 if int(s["visibility"]) >= 3 else -1)
-	\## EA_TASKS P1.F1: strengthen poll response to neglect (unattended calls).
-	## neglect: unattended calls should increase Kettering's poll
-	_poll("kettering", 0.3 * int(s["visibility"]) + (0.5 if s["type"] in ["gang", "hostage"] else 0.0))
+			# EA_TASKS P1.F1: neglect moves the race, and the Ledger says why
+		var why := "nobody answered the %s at %s" % [String(s["type"]), String(s.get("address", s["ward"]))]
+		_poll("kettering", 0.3 * int(s["visibility"]) + (0.5 if s["type"] in ["gang", "hostage"] else 0.0), why)
+		if int(s["visibility"]) >= 3:
+			_poll("pell", -0.2, why)
 		if (s["type"] in ["gang", "hostage"] and int(s["visibility"]) >= 2) or int(s["visibility"]) >= 4:
 			pending.append({"due": week + rng.randi_range(1, 3), "kind": "neglect", "ward": s["ward"], "ward_i": wi,
 				"type": s["type"], "address": s.get("address", ""), "vis": int(s["visibility"])})
-	# the budget committee watches the account
-	if dept.balance < 0:
-		_ally("council", -5, dept, lines)
-		_poll("pell", -0.4)
-	elif dept.deficit_weeks == 0 and week % 4 == 0:
-		_ally("council", 2, dept, lines)
+	# the budget committee watches the account. EA_TASKS P1.D2: below zero is the council's
+	# overdraft (it costs standing, not a freeze); below the limit it freezes.
+	var limit: int = int(dept.OVERDRAFT_LIMIT) if dept != null else -25000
+	if dept != null and dept.balance < limit:
+		_ally("council", -FROZEN_STANDING_COST, dept, lines, "the account below the overdraft limit ($%s)" % dept.money(dept.balance))
+		_poll("pell", -0.4, "the account frozen at $%s" % dept.money(dept.balance))
+	elif dept != null and dept.balance < 0:
+		_ally("council", -OVERDRAFT_STANDING_COST, dept, lines, "the account in overdraft ($%s of $%s)" % [dept.money(dept.balance), dept.money(-limit)])
+		_poll("pell", -0.2, "the account in overdraft ($%s)" % dept.money(dept.balance))
+	elif dept != null and dept.deficit_weeks == 0 and week % 4 == 0:
+		_ally("council", 2, dept, lines, "a balanced book at the quarterly check")
 	# a demoralised force talks to its union
 	if dept.morale < 40:
-		_ally("union", -2, dept, lines)
-	# consequences coming due
+		_ally("union", -2, dept, lines, "morale at %d" % int(dept.morale))
+	# consequences coming due. EA_TASKS P1.D3: a lawsuit with instalments pays one per
+	# week and stays on the books until the last one; only then does it "settle".
 	var keep: Array = []
 	for p in pending:
 		if int(p["due"]) > week:
 			keep.append(p)
 			continue
-		# process lawsuit instalments
-		if p.has("kind") and p["kind"] == "lawsuit" and p.has("instalments"):
-			for inst in p["instalments"]:
-				if not inst["paid"] and inst["week"] <= week:
-					dept.spend("Instalment of $%s (week %d)" % [dept.money(inst["amount"]), inst["week"]], inst["amount"])
-				_ally("council", -3, dept, lines)
-				inst["paid"] = true
-				lines.append("Instalment #%d of lawsuit from week %d: $%s paid." % [int(p["settled"]) + 1, int(p["op_week"]), dept.money(inst["amount"])])
-				break  # only one instalment per week
+		if p.get("kind", "") == "lawsuit" and p.get("instalments", null) is Array:
+			var insts: Array = p["instalments"]
+			for inst in insts:
+				if inst is Dictionary and not bool(inst.get("paid", false)) and int(inst.get("week", -1)) <= week:
+					dept.spend("Instalment of $%s (lawsuit from week %d)" % [dept.money(int(inst["amount"])), int(p.get("op_week", week))], int(inst["amount"]))
+					_ally("council", -3, dept, lines, "a lawsuit instalment ($%s)" % dept.money(int(inst["amount"])))
+					inst["paid"] = true
+					lines.append("Instalment of the lawsuit from week %d: $%s paid." % [int(p.get("op_week", week)), dept.money(int(inst["amount"]))])
+					break   # one instalment a week, as filed
+			var all_paid := true
+			for inst2 in insts:
+				if inst2 is Dictionary and not bool(inst2.get("paid", false)):
+					all_paid = false
+			if all_paid:
+				record["settled"] = int(record.get("settled", 0)) + 1
+				lines.append("The lawsuit from week %d is fully settled: $%s over four weeks." % [int(p.get("op_week", week)), dept.money(int(p.get("cost", 0)))])
+				if int(p.get("cost", 0)) >= 40000:
+					_headline(week, "CITY PAYS $%s OVER POLICE SHOOTING" % dept.money(int(p.get("cost", 0))), "Duff (budget chair): 'That is a school roof.'", "money")
+			else:
+				keep.append(p)
+			continue
 		lines.append_array(_land(week, p, dept))
-		else:
-			lines.append_array(_land(week, p, dept))
 	pending = keep
 	# the council's quarterly review of the allocation
 	if week % 8 == 0 and not lost("council"):
@@ -485,9 +554,22 @@ func week_end(week: int, board: Array, dept) -> Array:
 		elif standing("council") < 45:
 			dept.allocation = int(round(dept.allocation * 0.97 / 100.0)) * 100
 			lines.append("Quarterly review: the budget committee trims the allocation to $%s a week." % dept.money(dept.allocation))
+	# EA_TASKS P1.D4: the committee sweeps unspent surplus, so a run that signs nothing does
+	# not end with a six-figure account. Late-game sinks are the honest way to spend it.
+	if dept != null and week % SWEEP_EVERY == 0 and not lost("council") and dept.balance > SWEEP_FLOOR:
+		var sweep: int = mini(SWEEP_CAP, int(round((dept.balance - SWEEP_FLOOR) * SWEEP_SHARE / 100.0)) * 100)
+		if sweep > 0:
+			dept.spend("Council sweeps $%s of unspent surplus into the city reserve" % dept.money(sweep), sweep)
+			_ally("council", 2, dept, lines, "a balanced book ($%s swept)" % dept.money(sweep))
+			lines.append("The budget committee sweeps $%s of unspent surplus into the city reserve." % dept.money(sweep))
 	# a balanced book is Pell's whole platform
 	if dept.balance >= 0:
-		_poll("pell", 0.3)
+		_poll("pell", 0.3, "a balanced book")
+	# EA_TASKS P1.E3: an ally nobody has had word against this week holds its standing —
+	# being out of sight never drifts an ally down by itself.
+	for a in ALLY_ORDER:
+		if not lost(a) and standing(a) == int(before[a]) and standing(a) < 100:
+			_ally(a, 1, dept, lines, "a quiet week")
 	# the polls drift a little on their own, and a little back towards where the city
 	# started (v0.9.1: no lead runs away on momentum alone); the trailing campaigns try harder
 	for c in CAND_ORDER:
@@ -554,9 +636,10 @@ func _land(week: int, p: Dictionary, dept) -> Array:
 				"Body camera footage and internal" if p["strength"] == "video" else "Internal", who, String(p["text"])], "case")
 			lines.append("Leaked: internal affairs case %s, which you cleared." % p["case"])
 		"neglect":
+			cur_week = week
 			_trust(int(p["ward_i"]), -3)
-			_ally("coalition", -2, dept, lines)
-			_poll("kettering", 0.6)
+			_ally("coalition", -2, dept, lines, "a no-show at %s" % String(p.get("address", "")))
+			_poll("kettering", 0.6, "a no-show at %s" % String(p.get("address", "")))
 			var head2: String = {"gang": "SHOTS FIRED NEAR %s; RESIDENTS SAY POLICE NEVER CAME", "hostage": "FAMILY HELD FOR HOURS AT %s; 'WHERE WERE THE POLICE?'"}.get(
 				p["type"], "%s: POLICE A NO-SHOW") % String(p["address"]).to_upper()
 			_headline(week, head2, "Kettering: 'Under my administration, the police will come when you call.' He did not say how.", "story")
@@ -673,7 +756,8 @@ func ending(dept) -> Dictionary:
 func to_data() -> Dictionary:
 	return {"trust": trust.duplicate(), "allies": allies.duplicate(true), "polls": polls.duplicate(), "pending": pending.duplicate(true),
 		"press": press.duplicate(true), "record": record.duplicate(), "ended": ended, "result": result.duplicate(true),
-		"last_grant": last_grant, "rng_state": str(rng.state)}
+		"last_grant": last_grant, "last_surplus": last_surplus, "cur_week": cur_week,
+		"ally_log": ally_log.duplicate(true), "poll_log": poll_log.duplicate(true), "rng_state": str(rng.state)}
 
 
 ## A save that parses as JSON but lost a key must not throw here. This runs before the
@@ -724,7 +808,19 @@ func from_data(d: Dictionary, seed_v: int) -> void:
 		record[k2] = _int_of(raw_record[k2])
 	ended = bool(d.get("ended", false))
 	last_grant = _int_of(d.get("last_grant", -99))
+	last_surplus = _int_of(d.get("last_surplus", -99))
+	cur_week = _int_of(d.get("cur_week", 1))
 	result = d.get("result", {}) if d.get("result", {}) is Dictionary else {}
+	ally_log = []
+	var raw_ally_log: Array = d.get("ally_log", []) if d.get("ally_log", []) is Array else []
+	for e in raw_ally_log:
+		if e is Dictionary:
+			ally_log.append(e)
+	poll_log = []
+	var raw_poll_log: Array = d.get("poll_log", []) if d.get("poll_log", []) is Array else []
+	for e2 in raw_poll_log:
+		if e2 is Dictionary:
+			poll_log.append(e2)
 	rng.state = String(d.get("rng_state", "0")).to_int()
 
 
@@ -744,3 +840,4 @@ static func _float_of(v) -> float:
 	if v is String:
 		return String(v).to_float()
 	return 0.0
+
