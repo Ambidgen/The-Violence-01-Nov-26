@@ -16,6 +16,8 @@ This checks exactly those two things, and nothing else:
              alias of a `.gd` file, passes more arguments than the function takes.
              (Too few arguments is not checked: a callback named `press` or `shot` shadows
              a method often enough that the check would cry wolf. Too many cannot.)
+  concat     a `+` between a string literal and a number or an int()/float() call, which
+             GDScript rejects at parse time ("Invalid operands String and int for +").
   names      a SCREAMING_CASE identifier used in an expression that is not declared in the
              file, is not a member of a preloaded file, and is not one of Godot's globals.
 
@@ -84,6 +86,64 @@ def strip(text: str) -> str:
             out.append(c)
             i += 1
     return "".join(out)
+
+
+def strip_comments(text: str) -> str:
+    """Comments blanked, string literals kept (for the `+` check, which needs them)."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+        elif text.startswith('"""', i):
+            j = text.find('"""', i + 3)
+            j = n if j < 0 else j + 3
+            out.append(text[i:j])
+            i = j
+        elif c in "\"'":
+            q, j = c, i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                    continue
+                if text[j] == q:
+                    j += 1
+                    break
+                j += 1
+            out.append(text[i:j])
+            i = j
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def string_spans(text: str) -> list[tuple[int, int]]:
+    """Every string literal as (start, end), read left to right so quotes pair correctly."""
+    spans, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif text.startswith('"""', i):
+            j = text.find('"""', i + 3)
+            j = n if j < 0 else j + 3
+            spans.append((i, j))
+            i = j
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            j = j + 1 if j < n else n
+            spans.append((i, j))
+            i = j
+        else:
+            i += 1
+    return spans
 
 
 def split_args(s: str) -> list[str]:
@@ -169,7 +229,9 @@ def check_file(path: Path, cache: dict[Path, str]) -> list[str]:
 
     def arity(name: str, args_text: str, at: int, declared_in: Path):
         n = len(split_args(args_text))
-        variants = cache_sigs(declared_in).get(name, [])
+        # this file's own signatures are already parsed above; a cache keyed by path would
+        # go stale the moment a caller re-checks the same path with new text (the tests do)
+        variants = sigs.get(name, []) if declared_in == path else cache_sigs(declared_in).get(name, [])
         if variants and n > max(t for _, t, _ in variants):
             line = text[:at].count("\n") + 1
             problems.append(f"{path}:{line}: {name}() takes at most "
@@ -189,7 +251,20 @@ def check_file(path: Path, cache: dict[Path, str]) -> list[str]:
         for m in re.finditer(re.escape(alias) + r"\.(\w+)\s*\(", text):
             arity(m.group(1), call_args(text, m.end()), m.start(), target)
 
-    # 3. undeclared SCREAMING_CASE identifiers
+    # 3. a `+` that can only be a string and a number (`"week " + 5`, `"x" + int(y)`)
+    lit = strip_comments(raw)
+    for start, end in string_spans(lit):
+        after = lit[end:end + 40]
+        if re.match(r"\s*\+\s*(?:int|float)\s*\(|\s*\+\s*\d", after):
+            line = lit[:start].count("\n") + 1
+            problems.append(f"{path}:{line}: string + number (a '+' between a literal and a "
+                            f"number does not parse: use % formatting)")
+    for m in re.finditer(r"\b(?:int|float)\s*\([^()]*\)\s*\+\s*\"", lit):
+        line = lit[: m.start()].count("\n") + 1
+        problems.append(f"{path}:{line}: number + string (a '+' between a number and a "
+                        f"literal does not parse: use % formatting)")
+
+    # 4. undeclared SCREAMING_CASE identifiers
     known = declared(text) | inherited(path, cache)
     for alias, target in preloads(raw).items():
         if target.exists():

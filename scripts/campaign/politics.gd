@@ -776,7 +776,12 @@ func ending(dept) -> Dictionary:
 		_n(int(record["settled"]), "lawsuit"), _n(int(record["leaks"]), "case")])
 	## EA_TASKS P1.F3: election night shows the score breakdown.
 	lines.append("FILED. NOT RESOLVED.")
-	lines.append("SCORE BREAKDOWN: Kettering=" + int(result["votes"]["kettering"]) + "%%, Okonjo-Vale=" + int(result["votes"]["okonjo"]) + "%%, Pell=" + int(result["votes"]["pell"]) + "%%")
+	# P1.F3's breakdown is a set of rows in the election screen (ops_ui `_election_night`);
+	# what the ending says in words is the count itself. This used to be a string + int
+	# concatenation ("SCORE BREAKDOWN: Kettering=" + int(...)), which does not parse: it was
+	# the last of the faults that kept the campaign from compiling (CI 2026-11-02).
+	lines.append("The count: Kettering %d%%, Okonjo-Vale %d%%, Pell %d%%." % [
+		int(result["votes"]["kettering"]), int(result["votes"]["okonjo"]), int(result["votes"]["pell"])])
 	return {"winner": win, "keep": keep, "head": head, "lines": lines}
 
 
