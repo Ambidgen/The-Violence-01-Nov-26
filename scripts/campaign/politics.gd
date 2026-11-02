@@ -31,6 +31,19 @@ const GRANT_AMOUNT := 10000
 const GRANT_STANDING := 60
 const GRANT_COOLDOWN := 8       # weeks between grants
 const GRANT_FAVOUR := 5         # council standing spent asking
+# EA_TASKS P1.D2/D4, declared 2026-11-02: these were referenced by the overdraft, sweep
+# and surplus code but never written down, so the whole politics script failed to parse
+# ("Identifier SURPLUS_COOLDOWN not declared") and every campaign run in CI came back with
+# no record. The numbers are the ones the changelog and politics_test already describe.
+const OVERDRAFT_STANDING_COST := 2   # budget-chair standing a week while the account is below $0
+const FROZEN_STANDING_COST := 5      # and a week while it is below the overdraft limit
+const SWEEP_EVERY := 4               # the committee's quarterly sweep, in weeks
+const SWEEP_FLOOR := 25000           # nothing below this is swept
+const SWEEP_SHARE := 0.5             # half of everything above the floor
+const SWEEP_CAP := 30000             # but never more than this at once
+const SURPLUS_AMOUNT := 5000         # surplus returned to the city by hand (P1.D4)
+const SURPLUS_STANDING := 6          # what the budget chair thinks of it
+const SURPLUS_COOLDOWN := 4          # weeks before it can be done again
 
 const ALLIES := {
 	"council": {"name": "Marguerite Duff", "title": "Councillor, chair of the budget committee", "start": 55,
