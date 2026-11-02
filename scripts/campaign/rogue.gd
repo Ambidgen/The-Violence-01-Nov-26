@@ -1258,7 +1258,11 @@ static func run_score(c) -> Dictionary:
 	var total := 0
 	for k in parts:
 		total += int(parts[k])
-	return {"total": total, "parts": parts, "kept": kept}
+	# EA_TASKS P1.F3: the arithmetic travels with the number, so election night can show
+	# why the score is what it is rather than a single grey line of plus and minus.
+	return {"total": total, "parts": parts, "kept": kept, "clean": clean,
+		"clean_line": {"officers_killed": officers_killed, "civilians_killed": civ_killed, "findings": findings,
+			"needs": {"officers_killed": 2, "civilians_killed": 6, "findings": 6}}}
 
 
 static func load_legacy(path := LEGACY_PATH) -> Dictionary:

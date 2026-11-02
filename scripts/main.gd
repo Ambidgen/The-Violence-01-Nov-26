@@ -924,6 +924,8 @@ func ops_run() -> void:
 	adaptive_reason = ""
 	_adaptive_log_next = 0
 	_adaptive_event_next = 0
+	_note_contact()
+	_start_run_timer()
 	paused = false
 	_banner_done = true
 	ui.banner.visible = false
@@ -969,6 +971,15 @@ func ops_live() -> void:
 ## lift the fog, and show the debrief.
 func _op_finished() -> void:
 	_op_done = true
+	# EA_TASKS P1.G3: the operation's own clock. `--perf` prints it (simulated seconds and
+	# wall seconds at the speed the player asked for), which is how a full run's cost is
+	# measured on the slowest machine rather than guessed at.
+	if _run_start > 0:
+		var wall_s := float(Time.get_ticks_usec() - _run_start) / 1000000.0
+		_perf["wall_ms"] = Time.get_ticks_msec()
+		if _args.has("perf"):
+			print("RUNCLOCK %s: %.1f s simulated in %.1f s wall (%.2fx requested, %.2fx achieved, %d frames)" % [
+				level.map_name, world.t, wall_s, speed, world.t / maxf(0.01, wall_s), int(_perf["frames"])])
 	if view_t >= 0.0:
 		ops_live()
 	var res: Dictionary = Outcome.evaluate(cur_sit, world)
@@ -1196,14 +1207,51 @@ func effective_speed() -> float:
 
 
 func adaptive_status() -> String:
-	if not op_mode or not bool(Settings.get_v("adaptive_speed")):
+	if not op_mode or not bool(Settings.get_v("adaptive_speed")) or speed <= 1.0:
 		return ""
 	if world != null and world.t < adaptive_slow_until:
 		return "%s · 1x playback; fast-forward resumes after quiet" % adaptive_reason.capitalize()
-	return "Contact-aware fast-forward is on: contact, casualties and important radio briefly return to 1x."
+	return "Contact-aware fast-forward: quiet runs at %sx, contact, casualties and important radio return to 1x." % String.num(effective_speed(), 1)
+
+
+## EA_TASKS P1.G2: quiet, measured in simulated seconds, not frames. Anything the pacing
+## policy calls contact restarts it, and after QUIET_SKIP_AFTER of it the player may skip
+## to the report. The remaining simulation still steps (headless, same order of RNG calls),
+## so the report is identical to watching it run; `skip_to_report()` then takes the same
+## path a finished operation takes.
+var quiet_since := 0.0
+
+func _note_contact() -> void:
+	quiet_since = world.t if world != null else 0.0
+
+func quiet_seconds() -> float:
+	if not op_mode or world == null:
+		return 0.0
+	return maxf(0.0, world.t - quiet_since)
+
+func quiet_skip_after() -> float:
+	return Pacing.QUIET_SKIP_AFTER
+
+func can_skip_report() -> bool:
+	return op_mode and world != null and not world.over and Pacing.quiet_enough(quiet_seconds())
+
+func skip_to_report() -> bool:
+	if not can_skip_report():
+		return false
+	var guard := 0
+	while not world.over and guard < 300000:
+		world.step()
+		world.events.clear()
+		guard += 1
+	if not world.over:
+		return false
+	if not _op_done:
+		_op_finished()
+	return true
 
 
 func _adaptive_trigger(reason: String) -> void:
+	_note_contact()
 	if speed <= 1.0:
 		return
 	if world.t >= adaptive_slow_until or reason == "casualty":
@@ -1211,26 +1259,8 @@ func _adaptive_trigger(reason: String) -> void:
 	adaptive_slow_until = maxf(adaptive_slow_until, world.t + Pacing.hold_seconds(reason))
 
 
-## EA_TASKS P1.G2: "Skip to the report" after 60 s of quiet.
-## the sim keeps stepping headless to the end (still deterministic), then the debrief opens.
-var quiet_timer := 0
-
-func _check_quiet_timer() -> void:
-	if not op_mode or world == null:
-		return
-	if effective_speed() == 1.0:
-		quiet_timer += 1
-	else:
-		quiet_timer = 0
-	if quiet_timer >= 60:
-		# fast-forward to the end deterministically
-		while not world.over and world.t < 40:
-			world.step()
-		_briefing_open = true
-		quiet_timer = 0
-
 func _adaptive_after_step() -> void:
-	if not op_mode or world == null or not bool(Settings.get_v("adaptive_speed")) or speed <= 1.0:
+	if not op_mode or world == null:
 		return
 	_adaptive_log_next = maxi(_adaptive_log_next, world.log_base)
 	var log_end: int = world.log_base + world.log_lines.size()

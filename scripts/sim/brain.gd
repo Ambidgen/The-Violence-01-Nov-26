@@ -1657,6 +1657,16 @@ func _lizard_cover(o) -> bool:
 ## The Wolf (v0.8): alone, the squad gone. In a fight it goes cover to cover toward the
 ## threat (attacking) or holds the cover it has (holding); out of one it carries on with
 ## its task alone. True while it drove the operator.
+##
+## EA_TASKS B1: the bound is now a bound, not a walk. The wolf holds the cover it is in
+## and looks from it (WOLF_DWELL) before the next move, and it only leaves cover for a
+## bound whose route is itself hidden (WOLF_MAX_EXPOSURE of four samples). Before this it
+## re-planned every tick and stepped through open ground at a walk, so a lone fighter with
+## the brain on spent LESS of an unseen fight hidden than one without it (0.19 against
+## 0.28 in brains_test).
+const WOLF_DWELL := 2.5          # seconds in cover, looking, before the next bound
+const WOLF_MAX_EXPOSURE := 1.0   # of _route_exposure's four samples; more is a walk in the open
+
 func _wolf(o, tm: Dictionary, el: Dictionary) -> bool:
 	var lk = _team_lkp(tm, 40.0, o.pos)
 	if lk == null or w.t - float(el.get("contact_t", -99.0)) > LION_WINDOW:
@@ -1665,8 +1675,17 @@ func _wolf(o, tm: Dictionary, el: Dictionary) -> bool:
 	if el["mode"] in ["hold", "withdraw"]:
 		_cover_facing(o, lk, "holding alone")
 		return true
+	# arrived at the bound's cover: hold it, look from it, then look for the next one
 	var nxt = o.ticker.get("wolf_next", null)
-	if nxt == null or w.t > float(o.ticker.get("wolf_t", -99.0)) + 6.0 or o.pos.distance_to(nxt) < 0.6:
+	if nxt != null and o.pos.distance_to(nxt) < 0.6:
+		o.ticker.erase("wolf_next")
+		o.ticker["wolf_dwell_until"] = w.t + WOLF_DWELL
+		nxt = null
+	var cover: bool = _hidden(o.pos, [lk], 0.82)
+	if nxt == null and cover and w.t < float(o.ticker.get("wolf_dwell_until", -99.0)):
+		_cover_facing(o, lk, "alone, in cover")
+		return true
+	if nxt == null or w.t > float(o.ticker.get("wolf_t", -99.0)) + 6.0:
 		nxt = _wolf_bound(o, lk)
 		o.ticker["wolf_next"] = nxt
 		o.ticker["wolf_t"] = w.t
@@ -1679,7 +1698,8 @@ func _wolf(o, tm: Dictionary, el: Dictionary) -> bool:
 	return true
 
 
-## The next cover 3-9 m toward p, hidden from it, that is nearer to it than here.
+## The next cover 3-9 m toward p, hidden from it, that is nearer to it than here and can
+## be reached without crossing ground the threat can see (EA_TASKS B1).
 func _wolf_bound(o, p: Vector2):
 	var best = null
 	var bs := INF
@@ -1688,11 +1708,14 @@ func _wolf_bound(o, p: Vector2):
 		var c: Dictionary = item[1]
 		var q: Vector2 = c["p"]
 		var d: float = o.pos.distance_to(q)
-		if d < 3.0 or q.distance_to(p) > here - 1.5:
+		if d < 3.0 or q.distance_to(p) > here - 2.0:
 			continue
 		if not _hidden(q, [p], 0.82):
 			continue
-		var sc: float = q.distance_to(p) + 2.0 * _route_exposure(o.pos, q, [p])
+		var exposed: float = _route_exposure(o.pos, q, [p])
+		if exposed > WOLF_MAX_EXPOSURE:
+			continue
+		var sc: float = q.distance_to(p) + 6.0 * exposed
 		if sc < bs:
 			bs = sc
 			best = q
@@ -2492,15 +2515,16 @@ func _route_exposure(a: Vector2, b: Vector2, threats: Array) -> float:
 
 
 # ------------------------------------------------------------------ arrests (v0.6)
-## The nearest person who has given up and is not yet cuffed, within 20 m and in sight,
-## that no other officer is already cuffing: walk up and cuff them (3 s).
+## The nearest person who can be cuffed — someone who has given up, or someone a
+## less-lethal round put down (EA_TASKS B3) — within 20 m and in sight, that no other
+## officer is already cuffing: walk up and cuff them (3 s).
 func _arrest(o) -> bool:
 	if not o.action.is_empty():
 		return o.action.get("type", "") == "cuff"
 	var best = null
 	var bd := 20.0
 	for e in w.ops:
-		if not e.complying or e.arrested or not e.alive():
+		if not w.cuffable(e):
 			continue
 		var by: String = e.ticker.get("cuff_by", "")
 		if by != "" and by != o.id:

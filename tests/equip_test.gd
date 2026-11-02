@@ -83,7 +83,13 @@ const GATES := {
 	"flashbang": {"measure": "officers hit in the entry of a room held by 3 rifles (fewer)", "dir": -1, "margin": 0.3},
 	"ram": {"measure": "s to the first officer inside, outer doors locked (less)", "dir": -1, "margin": 3.0},
 	"breach": {"measure": "s to the first officer inside, outer doors locked (less)", "dir": -1, "margin": 3.0},
-	"shield": {"measure": "rounds through to an officer facing 3 rifles, 10 m (fewer)", "dir": -1, "margin": 0.3, "range": true},
+	# B2: the old measure was the raw number of rounds that reached the officer. It
+	# rewarded dying early — the unshielded officer was killed in the first seconds and
+	# so took fewer rounds, while the shielded one survived the twenty-second window and
+	# accrued more (1.02 against 0.69). The measure is now the share of the rounds that
+	# arrived at his body which got through; the shield's own stops are the denominator's
+	# other half, so survival time no longer decides the gate.
+	"shield": {"measure": "share of rounds reaching the body that got through, 10 m (less)", "dir": -1, "margin": 0.3, "range": true, "pooled": true},
 	# An operation records only some ten night recognitions, so the per-run mean was
 	# noisy enough to flip this gate from seed to seed at the documented --n. Pooled over four
 	# times the seeds it settles: at the default --n=12, 0.49 s with the light against 0.54 s
@@ -375,7 +381,9 @@ func t_breach(on: bool, sd: int):
 
 
 ## The shield in a gunfight: one officer with a pistol facing three armed men at 10 m.
-## Rounds that got through to him (by the shield, his plates, or around them).
+## [rounds through to the officer, rounds through + rounds the shield stopped]. The ratio
+## is the share that got through (EA_TASKS B2); the raw count is kept so a verbose run can
+## still show the arithmetic.
 func t_shield(on: bool, sd: int):
 	var lane := _lane(10.0)
 	var lv = Maps.get_level(11)
@@ -393,8 +401,9 @@ func t_shield(on: bool, sd: int):
 	for o in w.ops:
 		if o.team == 1:
 			v += o.hits
+	var stopped: int = int(w.stat.get("shield", 0))
 	w.dispose()
-	return v
+	return [v, v + stopped] if v + stopped > 0 else null
 
 
 ## The weapon light's own measure: the recognition seconds recorded against the number of
@@ -493,7 +502,9 @@ func t_gas_mask(on: bool, sd: int):
 func _cuffed_alive(w) -> int:
 	var v := 0
 	for o in w.ops:
-		if o.team == 1 and o.alive() and (o.arrested or o.complying):
+		# B3: a suspect a less-lethal round put down and an officer cuffed is secured and
+		# alive; before this the count only saw him if he was still standing.
+		if o.team == 1 and o.state in ["ok", "down"] and (o.arrested or o.complying):
 			v += 1
 	return v
 

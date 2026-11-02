@@ -18,7 +18,10 @@ extends SceneTree
 ##   --json=DIR       where the per-run JSON, summary.json and report.md go (default build/balance)
 ##   --jobs=N         concurrent runs (default: min(4, cores))
 ##   --bands=PATH     the Gate 1 bands (default tests/balance_bands.json)
-##   --enforce        miss a band and exit 1 (the file says report-only until P1.I)
+##   --enforce        miss a band and exit 1; the bands file now asserts by itself
+##                    ("enforce": true, P1.I2), so a full matrix misses-and-fails without
+##                    the flag. The smoke (2-week shakedown) is never judged by the bands.
+##   --report-only    ignore the file and only print the bands (a tuning experiment)
 ##   --timeout=S      seconds one run may take before it is killed (default 3600; smoke 300)
 ##   --smoke          the quick-tier shakedown: 1 seed, all policies, 2 weeks
 ##   --merge=DIRS     combine the run-*.json of shard directories into one report and
@@ -27,8 +30,8 @@ extends SceneTree
 ##                    is anything a shard's own summary.json lists as broken. A GitHub job
 ##                    stops at 6 hours, so the 20-seed baseline runs as shards (EA_TASKS P1.A4).
 ##
-## Exit: 0 all runs finished and every band held (or bands are report-only); 1 a run
-## hung, never reached the election, wrote no JSON, or (with --enforce) a band missed.
+## Exit: 0 all runs finished and every band held; 1 a run hung, never reached the
+## election, wrote no JSON, or a band missed (P1.I2; --report-only for an experiment).
 
 const Campaign = preload("res://scripts/campaign/campaign.gd")
 const Autoplan = preload("res://scripts/campaign/autoplan.gd")
@@ -329,7 +332,12 @@ func _parent(args: Dictionary) -> int:
 		jobs = clampi(OS.get_processor_count(), 1, 4)
 	var timeout_s := int(args.get("timeout", "300" if smoke else "3600"))
 	var bands_path := String(args.get("bands", BANDS_PATH))
-	var enforce := args.has("enforce")
+	# P1.I2: the bands assert. The file decides (balance_bands.json "enforce"), the smoke
+	# never does, and --report-only / --enforce override for one experiment.
+	var bands_file: Dictionary = _load_bands(bands_path)
+	var enforce := args.has("enforce") or (not smoke and bool(bands_file.get("enforce", false)))
+	if args.has("report-only"):
+		enforce = false
 	if not DirAccess.dir_exists_absolute(out_dir):
 		DirAccess.make_dir_recursive_absolute(out_dir)
 
