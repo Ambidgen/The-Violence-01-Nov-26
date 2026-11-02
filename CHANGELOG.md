@@ -596,6 +596,11 @@ becomes an officer inside the frame.
   reports 175 doors, 59 clipping crossings before the fix and 0 after, and 152 doors whose
   shut leaf stopped someone walking past it, 0 after.
 
+## Unreleased: crayon opening replacement (2026-11-02)
+
+- The opening no longer plays the four legacy red-ink Remotion `.ogv` files. It now sequences the existing native crayon stories: `opening_view` (Port Carrick), `presser_view` (The Press Conference), `jeremy_view` (Jeremy Berry), and `fettick_view` (This Machine Kills Tyrants). Their native timeline durations control transitions; Space/Enter/click skips one, Esc skips the rest. The old videos remain in the repository as reference/source artifacts during migration.
+- This is the first cutscene batch, not completion of the overhaul: all fourteen campaign shorts still use their legacy video renders and remain to be replaced.
+
 ## Unreleased: the short cutscenes
 
 Fourteen in-game interstitials, 5-10 s each, in the same Remotion project as the opening
