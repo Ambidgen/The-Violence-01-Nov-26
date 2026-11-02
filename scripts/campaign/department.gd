@@ -29,6 +29,10 @@ const Courses = preload("res://scripts/data/courses.gd")
 
 const VERSION := 6        # 4: v0.8, pair bonds; 5: v0.8.5, budget/training/cases; 6: applicant pool and course clocks
 const SAVE_PATH := "user://department.json"
+## EA_TASKS P1.D2: overdount tuning table
+const OVERDRAFT_LIMIT := -25000      # council allows the account to go to -5K before freezing
+const OVERDRAFT_INTEREST := 0.02     # 2% weekly interest on the negative balance
+const DUFF_STANDING_COST := 1000     # weekly cost for Duff standing
 ## Experience points needed for tiers 1-5 (Green, Blooded, Seasoned, Veteran, Exceptional).
 const XP_TIERS := [0, 6, 18, 40, 80]
 const RANKS := ["Officer", "Corporal", "Sergeant", "Lieutenant", "Captain"]
@@ -435,8 +439,10 @@ func income(item: String, amount: int) -> void:
 
 
 ## In the red: no hiring, no training and no new kit until the account is back above zero.
+## EA_TASKS P1.D2: the freeze only applies below the overdraft limit.
+## Above the limit, hiring, training and new kit are open.
 func frozen() -> bool:
-	return balance < 0
+	return balance < OVERDRAFT_LIMIT
 
 
 func shift_morale(d: int, why := "") -> void:
@@ -736,6 +742,29 @@ func forecast(weeks_n := 4, pending: Array = []) -> Array:
 		rows.append({"week": wk, "allocation": allocation, "payroll": pr, "lawsuits": suits, "balance": bal})
 	return rows
 
+
+## EA_TASKS P1.D1: forecast_after returns the four-week balance with one action added.
+## action is "hire", "course", or "kit"; the function adds the relevant cost and
+## returns the week-by-week balance projection so the UI can show "week N goes to -".
+func forecast_after(action: String) -> Array:
+	var rows := forecast(4)
+	var extra: Array = []
+	for i in 4:
+		var row := rows[i]
+		var wk: int = int(row["week"])
+		var bal: int = int(row["balance"])
+		if action == "hire":
+			var cost: int = Courses.RECRUIT + int(Equipment.cost(Equipment.default_kit()))
+			bal -= cost
+		else if action == "course":
+			# the cheapest classroom course (uof): judgment review
+			var course_cost := int(Courses.COURSES["uof"]["cost"])
+			bal -= course_cost
+		else if action == "kit":
+			var cost: int = int(Equipment.cost(Equipment.default_kit()))
+			bal -= cost
+		extra.append({"week": wk, "balance": bal, "action": action})
+	return extra
 
 ## A course ends: what it teaches.
 func _finish_course(r: Dictionary) -> String:

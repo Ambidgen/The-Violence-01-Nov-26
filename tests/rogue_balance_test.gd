@@ -562,7 +562,12 @@ func derive(run: Dictionary) -> Dictionary:
 		"weeks_fit_below_12": fits.filter(func(f): return int(f) < 12).size(),
 		"weeks_below_zero": below0, "weeks_below_zero_1_12": below0_early,
 		"balance_min": 0 if bal.is_empty() else int(bal.min()), "balance_max": 0 if bal.is_empty() else int(bal.max()),
-		"balance_end": 0 if bal.is_empty() else int(bal[bal.size() - 1]),
+		## EA_TASKS P1.D4.f: 3-seed smoke: confirm minimal no longer ends with an unspent six-figure account.
+	## (this is a smoke test; the full rebalancing is P1.D5)
+	var bal_end_minimal := 0 if bal.is_empty() else int(bal[bal.size() - 1])
+	check(bal_end_minimal < 100000, "minimal policy balance at end < $100K (got $%d)" % bal_end_minimal)
+
+"balance_end": 0 if bal.is_empty() else int(bal[bal.size() - 1]),
 		"unattended": int(rec.get("unattended", 0)),
 		"officers_killed": int(rec.get("officers_killed", 0)),
 		"officers_killed_per_op": float(run.get("officers_killed_per_op", 0.0)),

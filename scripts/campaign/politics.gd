@@ -136,9 +136,17 @@ func week_press(week: int) -> Array:
 
 
 # ================================================================== moving it
-func _ally(a: String, d: int, dept, lines: Array) -> void:
+## EA_TASKS P1.E1: log every ally standing change with cause, week and delta into weeks.csv.
+	func _ally(a: String, d: int, dept, lines: Array) -> void:
 	var al: Dictionary = _ally_rec(a)
 	al["standing"] = clampi(_int_of(al.get("standing", 0)) + d, 0, 100)
+	# log the change
+	var log_entry := {"week": week, "ally": a, "delta": d, "standing": al["standing"], "lost": al["lost"]}
+	# write to weeks.csv (append mode)
+	var f := FileAccess.open("user://weeks.csv", FileAccess.WRITE)
+	if f != null:
+		f.store_line(String(week) + "," + a + "," + String(d) + "," + String(al["standing"]) + "," + (al["lost"] ? "true" : "false"))
+		f.close()
 	if not al["lost"] and int(al["standing"]) < LOST:
 		al["lost"] = true
 		lines.append("LOST: %s (%s). %s" % [ALLIES[a]["name"], ALLIES[a]["title"], ALLIES[a]["lost"]])
@@ -300,7 +308,9 @@ func on_operation(week: int, sit: Dictionary, res: Dictionary, w, dept) -> Array
 	if off_killed > 0:
 		_ally("union", -4 * off_killed, dept, lines)
 		_ally("council", -2 * off_killed, dept, lines)
-		_poll("kettering", 1.0 * off_killed)
+\## EA_TASKS P1.F1: strengthen poll response to harm, neglect and restraint.
+	## restraint: officer killed should increase Kettering's poll
+	_poll("kettering", 2.0 * off_killed)
 		_headline(week, "%s OFFICER%s KILLED IN %s" % [_num(off_killed), "" if off_killed == 1 else "S", where.to_upper()],
 			"The department lowers its flags. Rourke (union): 'Somebody sent them in there.'", "op")
 	if sus_killed > 0 and vis >= 2:
@@ -433,7 +443,9 @@ func week_end(week: int, board: Array, dept) -> Array:
 		# v0.9.1: a quiet warrant left for next week barely registers; a crew house or a
 		# hostage taking left alone, or anything people were watching, does
 		_trust(wi, -2 if int(s["visibility"]) >= 3 else -1)
-		_poll("kettering", 0.15 * int(s["visibility"]) + (0.3 if s["type"] in ["gang", "hostage"] else 0.0))
+	\## EA_TASKS P1.F1: strengthen poll response to neglect (unattended calls).
+	## neglect: unattended calls should increase Kettering's poll
+	_poll("kettering", 0.3 * int(s["visibility"]) + (0.5 if s["type"] in ["gang", "hostage"] else 0.0))
 		if (s["type"] in ["gang", "hostage"] and int(s["visibility"]) >= 2) or int(s["visibility"]) >= 4:
 			pending.append({"due": week + rng.randi_range(1, 3), "kind": "neglect", "ward": s["ward"], "ward_i": wi,
 				"type": s["type"], "address": s.get("address", ""), "vis": int(s["visibility"])})
@@ -452,7 +464,18 @@ func week_end(week: int, board: Array, dept) -> Array:
 		if int(p["due"]) > week:
 			keep.append(p)
 			continue
+		# process lawsuit instalments
+		if p.has("kind") and p["kind"] == "lawsuit" and p.has("instalments"):
+			for inst in p["instalments"]:
+				if not inst["paid"] and inst["week"] <= week:
+					dept.spend("Instalment of $%s (week %d)" % [dept.money(inst["amount"]), inst["week"]], inst["amount"])
+				_ally("council", -3, dept, lines)
+				inst["paid"] = true
+				lines.append("Instalment #%d of lawsuit from week %d: $%s paid." % [int(p["settled"]) + 1, int(p["op_week"]), dept.money(inst["amount"])])
+				break  # only one instalment per week
 		lines.append_array(_land(week, p, dept))
+		else:
+			lines.append_array(_land(week, p, dept))
 	pending = keep
 	# the council's quarterly review of the allocation
 	if week % 8 == 0 and not lost("council"):
@@ -640,7 +663,9 @@ func ending(dept) -> Dictionary:
 		_n(int(record["successes"]), "operation"), int(record["failures"]), _n(int(record["unattended"]), "situation"),
 		_n(int(record["officers_killed"]), "officer"), _n(int(record["stories"]), "story", "stories"),
 		_n(int(record["settled"]), "lawsuit"), _n(int(record["leaks"]), "case")])
+	## EA_TASKS P1.F3: election night shows the score breakdown.
 	lines.append("FILED. NOT RESOLVED.")
+	lines.append("SCORE BREAKDOWN: Kettering=" + int(result["votes"]["kettering"]) + "%%, Okonjo-Vale=" + int(result["votes"]["okonjo"]) + "%%, Pell=" + int(result["votes"]["pell"]) + "%%")
 	return {"winner": win, "keep": keep, "head": head, "lines": lines}
 
 

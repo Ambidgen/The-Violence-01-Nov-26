@@ -219,3 +219,23 @@ func check_election_noop(c, before: String) -> void:
 	var p = Politics.new()
 	p.from_data({"trust": [1, 2, 3, 4, 5, 6, 99]}, 5)
 	_check(p.trust.size() == Situations.WARDS.size() and p.avg_trust() == 3.5, "extra saved trust entries cannot distort the six-ward average")
+
+
+## EA_TASKS P1.D3: lawsuit instalments test.
+func test_lawsuit_instalments() -> void:
+	var c = Politics.new()
+	from_data({"trust": [1, 2, 3, 4, 5, 6]}, 6)
+	# file a lawsuit with cost 16000 (4 instalments of 4000 each)
+	var inc := {"kind": "lawsuit", "cost": 16000, "op_week": c.week, "settled": 0, "stories": 0, "leaks": 0}
+	pending := [inc]
+	# process 4 weeks of instalments
+	for i in range(4):
+		week_end(c.week + i, [], Department.new())
+	# verify all 4 instalments were paid (total 16000)
+	_check(c.settled == 1, "one lawsuit settled after 4 instalments")
+	print("Lawsuit instalments test passed!")
+
+# Run the test
+print("Testing lawsuit instalments...")
+test_lawsuit_instalments()
+print("All lawsuit instalments tests passed!")

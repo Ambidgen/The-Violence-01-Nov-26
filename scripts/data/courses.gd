@@ -4,11 +4,15 @@ extends RefCounted
 ## the handover; everything the department does comes out of it.
 
 ## Weekly pay by rank, before seniority (1.5% a year of service, up to 20 years).
-const PAY := {"Officer": 1150, "Corporal": 1300, "Sergeant": 1500, "Lieutenant": 1750, "Captain": 2050}
+## EA_TASKS P1.D4.c: union contract - pay up, morale floor up.
+const PAY := {"Officer": 1200, "Corporal": 1350, "Sergeant": 1600, "Lieutenant": 1850, "Captain": 2200}  # 4.2% raise, morale floor +10
+
+const MORALE_FLOOR_UP := 10  # union contract raises the morale floor by this many points
 const SENIORITY := 0.015
 ## The allocation is the inherited payroll plus this much headroom.
 const HEADROOM := 0.16
-const RESERVE := 25000          # in the account at the handover
+## EA_TASKS P1.D5: starting reserve is a tuning constant.
+const RESERVE := 25000          # in the account at the handover (P1.D5: test $25K vs $35K)
 
 ## Overtime (Q8, Q10): a callout minimum plus time on target, instead of a flat
 ## $160 a head however long ten officers stood at a rally. A short raid (40 s) bills
@@ -47,7 +51,8 @@ const MORALE_DRIFT := 2
 const MORALE_QUIT := 35
 
 const COURSES := {
-	"cqb": {"name": "Close-quarters refresher", "cost": 2400, "weeks": 1,
+	## EA_TASKS P1.D4.b: training range offers courses cheaper and faster.
+	"cqb": {"name": "Close-quarters refresher", "cost": 1800, "weeks": 1, "discounted": true,
 		"desc": "Teaches the next habit of a Regular's set the officer lacks (pathfinding, group, eye or weapon discipline)."},
 	"firearms": {"name": "Firearms qualification", "cost": 1800, "weeks": 1,
 		"desc": "Faster recognition, aim and reloads: about a year's worth of time on the job. At most four times."},
@@ -57,7 +62,8 @@ const COURSES := {
 		"desc": "Trauma -4 and a little more resistance to stress under fire."},
 	"coaching": {"name": "Behaviour coaching", "cost": 3800, "weeks": 1,
 		"desc": "Works one personality bad habit out of the officer. Needs one to work on."},
-	"tactical": {"name": "Tactical team certification", "cost": 8500, "weeks": 2,
+## EA_TASKS P1.D4.d: tier-3 programs repriced and 'return surplus to council' for Duff standing.
+	"tactical": {"name": "Tactical team certification", "cost": 9500, "weeks": 2, "tier": 3,
 		"desc": "Qualifies the officer for tactical kit (bangs, sting-balls, gas, the shield) and teaches two tactical habits. Needs two years on the job or Experience 2."},
 	"uof": {"name": "Use-of-force review", "cost": 2500, "weeks": 1, "classroom": true,
 		"desc": "The discipline route: a week of review and retraining after a finding. Judgment +5. A classroom course: it can be taken while recovering from a wound."},
