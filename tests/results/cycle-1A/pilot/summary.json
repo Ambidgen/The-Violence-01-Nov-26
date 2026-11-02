@@ -1,5 +1,5 @@
 {
-  "band_status": "report-only",
+  "band_status": "asserting",
   "bands": [
     {
       "agg": "min",
