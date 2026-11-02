@@ -98,6 +98,7 @@ fi
 PLAN=$(cat <<'EOF'
 _check.gd|check|300|exit|
 godot472_test.gd|quick|300|exit|
+crayon_shorts_test.gd|quick|300|exit|
 city_integration_test.gd|quick|300|exit|
 character_assets_test.gd|quick|300|exit|
 group_movement_test.gd|quick|300|exit|
