@@ -215,6 +215,15 @@ What was built, against the plan:
   - Cautious: no week below $0 in weeks 1–12 and ≤ 4 such weeks overall.
   - Minimal: week-40 balance ≤ $100K, or the money is visibly spent on sinks.
 
+- **Status 2026-11-02: built; exit measured by the next matrix.** P1.D1 (forecast-priced
+  buttons with confirm), P1.D2 (overdraft to −$25K, 2%/wk interest, Duff standing cost,
+  freeze only below the limit), P1.D3 (four weekly instalments, forecast-aware), P1.D4
+  (ARV capital item, training range, union contract, repriced tier-3, surplus-return offer,
+  quarterly sweep), P1.D5 (`Courses.reserve` tuning constant). `dept_test` covers the
+  overdraft boundaries, interest, reserve override and `forecast_after`; `rogue_balance_test`
+  flags a minimal run ending ≥$100K unspent. Static validation only in this sandbox (no
+  engine): `gd47_check` + `gdparse` clean; engine runs are CI-only.
+
 ### Cycle 1.E — Allies that can come back
 | ID | Task | Files | Size |
 |---|---|---|---|
@@ -224,6 +233,15 @@ What was built, against the plan:
 
 - **Exit:** at least one ally lost *and* won back in ≥ 5 of 20 runs; median allies lost under cautious ≤ 1.
 
+- **Status 2026-11-02: built; exit measured by the next matrix.** P1.E1 (every `_ally` /
+  `_poll` delta logged with week + cause in `ally_log` / `poll_log`, saved, capped 400;
+  `allies.csv` from the harness; roster_report section). P1.E2 (reconciliation offers from
+  lost allies: $15,000, past the regain line, ≤1 per 4 weeks, once per ally per run, afforded
+  to the overdraft limit). P1.E3 (quiet-week +1 hold, crowd −8, story coalition −3, deficit
+  split at the limit; out-of-sight never self-drifts). `politics_test` covers instalments,
+  sweep/surplus, the cause log and the hold; `rogue_test` D4.e covers reconcile. Static
+  validation only (no engine in the sandbox); engine runs are CI-only.
+
 ### Cycle 1.F — The election and the score
 | ID | Task | Files | Size |
 |---|---|---|---|
@@ -232,6 +250,13 @@ What was built, against the plan:
 | P1.F3 | Election night shows the score breakdown next to the ending, so the player sees *why*. | `ops_ui.gd _election_night()` | S |
 
 - **Exit:** cautious mean run score is above minimal and military-first over 20 seeds; cautious keeps the office in clearly more seeds than minimal.
+
+- **Status 2026-11-02: P1.F1 and P1.F2 built (P1.F3 not in the next ten); exit measured by
+  the next matrix.** P1.F1: every poll move logged with its cause and listed on the Ledger's
+  week page ("what moved the numbers this week"). P1.F2: decided — Kettering keeping a brutal
+  chief stays, but the +60 for keeping office is now conditional on a clean record
+  (≤2 officers killed, ≤6 civilians killed, ≤6 force findings), otherwise +20. Static
+  validation only (no engine in the sandbox); engine runs are CI-only.
 
 ### Cycle 1.G — Rally pacing
 | ID | Task | Files | Size |

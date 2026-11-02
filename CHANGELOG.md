@@ -3,6 +3,44 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — EA_TASKS P1.D–P1.F: money curve, allies that come back, the election (2026-11-02)
+
+- **Council overdraft (P1.D2)**: the account may go to −$25,000 before anything freezes. Below
+  $0 it pays 2% weekly interest (department) and costs the budget chair standing every week
+  (politics); only below the limit are hiring, training and new kit frozen. Contracts,
+  programs and offers may be bought into the overdraft, but not past the limit.
+- **Lawsuits settle in four weekly instalments** (P1.D3), each costing the council 3 standing
+  with its cause logged; the four-week forecast shows each instalment in its own week.
+- **Hire, course and contract buttons price themselves into the four-week forecast**
+  ("week 6 goes to −$2,100") and ask for confirmation before a negative week (P1.D1).
+- **Late-game sinks (P1.D4)**: an armoured rescue vehicle (a capital item with the military
+  tag; on a gang raid it carries the first officer downed out alive), a training-range offer
+  (courses 25% cheaper, a week faster), a union contract (morale floor +10 for good), tier-3
+  training programs repriced ×1.5 from week 20, a "return $5,000 of surplus" offer (+6 Duff
+  standing, 4-week cooldown), and an automatic quarterly council sweep of half of everything
+  above $25,000 (capped at $30,000).
+- **The starting reserve is a tuning constant** (P1.D5): `Courses.reserve`, shipped $25,000,
+  overridable per run by the balance harness ($25K vs $35K A/B).
+- **Every ally and poll movement carries a cause** (P1.E1, P1.F1): `politics.ally_log` /
+  `poll_log`, saved with the campaign, read back on the Carrick Ledger's week page ("what
+  moved the numbers this week"). The balance harness now also writes `allies.csv`, and
+  `tools/roster_report.py` charts allies lost at week 40 and won back, per policy.
+- **Reconciliation offers (P1.E2)**: a lost ally will take the department back for $15,000 and
+  enough standing to cross the regain line — at most one offer every 4 weeks, once per ally
+  per run; affordability runs to the overdraft limit.
+- **Drift tuning (P1.E3)**: a quiet week holds every non-lost ally's standing (+1); crowd
+  kills cost the council 8 (was 10), story coalitions 3 (was 4); a deficit costs more below
+  the overdraft limit than above it. Being out of sight never drifts an ally down by itself.
+- **The election bonus is conditional on the record (P1.F2)**: keeping office pays +60 only
+  on a clean record (≤2 officers killed, ≤6 civilians killed, ≤6 force findings), else +20.
+- Tests: `dept_test` (overdraft boundaries, weekly interest, reserve override, forecast_after),
+  `politics_test` (instalments, sweep + hand surplus return, cause log, quiet-week hold),
+  `rogue_test` P1.D4.e (an effect assertion per new sink, the reconcile offer, F2),
+  `rogue_balance_test` (writes `allies.csv`; flags a minimal run ending ≥$100K unspent).
+  Validation in this session was static only — no engine in the sandbox: `gd47_check` clean
+  on 143 files, `gdparse` clean on all of `scripts/ tests/ tools/` (including pre-existing
+  parse damage in `ui.gd` and `orders_test.gd`, now repaired). Engine harness runs are CI-only.
+
 ## Unreleased — EA_TASKS cycle 1.C: the roster bleed (2026-10-29)
 
 - **Where officers die**: the balance harness now logs every operation and week

@@ -111,6 +111,35 @@ def report(folder, policy=None):
                   table(["policy", f"weeks >= {FIT_FLOOR} fit", "injury-weeks per run", "academy-weeks per run"], rows), ""]
     else:
         lines += ["*(no weeks.csv in this folder: a matrix from before 1.C)*", ""]
+    apath = folder / "allies.csv"
+    if apath.exists():
+        allies = load(apath)
+        if policy:
+            allies = [a for a in allies if a["policy"] == policy]
+        # last row per (run, ally) = the week-40 standing; ever-lost vs end-lost gives
+        # the won-back count (P1.E2) — per policy
+        last = {}
+        ever_lost = defaultdict(set)
+        for a in allies:
+            k = (a["seed"], a["policy"], a["ally"])
+            if k not in last or int(a["week"]) > int(last[k]["week"]):
+                last[k] = a
+            if a["lost"] == "1":
+                ever_lost[(a["seed"], a["policy"])].add(a["ally"])
+        pol = defaultdict(lambda: {"runs": set(), "lost_end": 0, "regained": 0})
+        for (seed, pol_name, ally), row in last.items():
+            pol[pol_name]["runs"].add(seed)
+            if row["lost"] == "1":
+                pol[pol_name]["lost_end"] += 1
+        for key, lost_set in ever_lost.items():
+            end_lost = {a for (s, p, a), row in last.items() if (s, p) == key and row["lost"] == "1"}
+            pol[key[1]]["regained"] += len(lost_set - end_lost)
+        rows = [[p, len(d["runs"]), f'{100.0 * d["lost_end"] / (4 * len(d["runs"])):.0f}%',
+                 d["regained"]] for p, d in sorted(pol.items())]
+        lines += ["## Allies (P1.E1/E2/E3)", "",
+                  "From allies.csv: allies lost at week 40, and allies ever lost but not lost at the end "
+                  "(won back — the P1.E2 exit wants at least one in 5 of 20 runs).", "",
+                  table(["policy", "runs", "ally-losses at week 40", "won back"], rows), ""]
     return "\n".join(lines)
 
 
