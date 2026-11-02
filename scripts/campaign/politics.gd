@@ -218,8 +218,16 @@ func _trust(ward_i: int, d: int) -> void:
 		trust[ward_i] = clampi(int(trust[ward_i]) + d, 0, 100)
 
 
-func _poll(c: String, d: float) -> void:
+## EA_TASKS P1.F1: a poll move with a named cause is logged (week, candidate, delta,
+## cause) and shown on the Ledger's week page; a move without one is the background drift
+## and stays out of the log. Declared 2026-11-02: ten call sites passed the cause but the
+## function took two arguments, which is a parse error and took the whole script with it.
+func _poll(c: String, d: float, cause := "") -> void:
 	polls[c] = clampf(_float_of(polls.get(c, 0.0)) + d, 3.0, 200.0)
+	if cause != "":
+		poll_log.append({"week": cur_week, "cand": c, "delta": d, "poll": polls[c], "cause": cause})
+		if poll_log.size() > 400:
+			poll_log = poll_log.slice(poll_log.size() - 400)
 
 
 func _headline(week: int, head: String, body: String, kind: String) -> void:

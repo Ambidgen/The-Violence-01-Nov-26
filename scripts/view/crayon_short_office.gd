@@ -353,7 +353,7 @@ func _threshold() -> void:
 		_person(Vector2(934, 592), 1.45, UMBER, 570)
 		C.scribble_ring(self, Vector2(934, 515), 48, 58, RED, 571, _reveal(3.3, 0.45), 3.0)
 	else:
-		C.line(self, Vector2(780, 601), Vector2(1010, 601), MOSS, 5.0, 572, 1.2)
+		C.line(self, Vector2(780, 601), Vector2(1010, 601), C.MOSS, 5.0, 572, 1.2)
 	# Recognition bar fills then holds; contact and clear resolve to different word marks.
 	var bar := Rect2(420, 750, 760, 28)
 	_box(bar, 580, _reveal(1.0, 0.35))

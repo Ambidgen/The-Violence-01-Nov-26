@@ -191,7 +191,7 @@ func _election() -> void:
 		C.hatch_rect(
 			self,
 			Rect2(770, y + 47, bw, 34),
-			_alpha(NAVY if i == winner else SLATE, _reveal(1.3 + i * 0.4, 0.65)),
+			_alpha(NAVY if i == winner else C.SLATE, _reveal(1.3 + i * 0.4, 0.65)),
 			4.0,
 			-0.4,
 			940 + i,

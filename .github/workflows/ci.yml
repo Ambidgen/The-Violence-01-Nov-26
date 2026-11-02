@@ -63,6 +63,12 @@ jobs:
       # statements. Catches the class of fault that made v1.2.1 unparseable.
       - name: gd47_check
         run: python3 tools/gd47_check.py
+      - name: gd_arity_check
+        # Arity and undeclared names: a call with more arguments than the function takes,
+        # or a CONSTANT used but never declared. Both parse; both only fail when the engine
+        # loads the script. This is the check that would have caught the 2026-11-02
+        # politics.gd break ("Identifier SURPLUS_COOLDOWN not declared").
+        run: python3 tools/gd_arity_check.py
       - name: test runner regression tests
         # tools/run_tests.sh itself: exit codes, xfail/xpass, timeouts, ~ in GODOT
         run: python3 -m unittest discover -s tests -p test_runner.py -v
