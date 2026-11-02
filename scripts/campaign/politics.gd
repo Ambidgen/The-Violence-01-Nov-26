@@ -506,6 +506,13 @@ func on_decision(week: int, c: Dictionary, decision: String, dept) -> Array:
 ## council's quarterly review, and this week's front page. Returns readable lines.
 func week_end(week: int, board: Array, dept) -> Array:
 	var lines: Array = []
+	cur_week = week
+	# EA_TASKS P1.E3: where every ally stood when the week began, so "a quiet week" can
+	# mean the week moved nobody (this snapshot was referenced as `before` but never taken,
+	# which is a parse error: found in CI 2026-11-02, see tools/gd_arity_check.py).
+	var before: Dictionary = {}
+	for a in ALLY_ORDER:
+		before[a] = standing(a)
 	# what nobody went to
 	for s in board:
 		if s["status"] != "unattended" or s.get("truce", false):   # 1.3: a truce is not neglect

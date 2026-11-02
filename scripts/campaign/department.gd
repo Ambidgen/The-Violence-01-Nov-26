@@ -78,6 +78,12 @@ var applicant_week := 0              # the week the pool was rolled; unchosen ap
 var emergency_week := 0              # EA_TASKS P1.C3: the week an emergency lateral was last signed (one a week)
 var keep_on_books := 0               # EA_TASKS P1.C4: standing order, officers to keep on the books (0: none)
 var curriculum: Array = []           # 1.3: habits department programs added to the academy (every hire learns them)
+## EA_TASKS P1.D4: capital items the department owns (Equipment.CAPITAL ids: the armoured
+## rescue vehicle and its kind, bought as contracts) and the training range an offer builds.
+## Declared 2026-11-02: rogue.gd has been setting both since 1.D and department.gd has been
+## reading them, but neither was ever declared, so the script did not compile.
+var capital := {}                    # contract id -> true, once signed
+var has_range := false               # own range: courses a quarter cheaper and a week sooner
 var _founding := false
 var rng := RandomNumberGenerator.new()
 var names
@@ -1375,7 +1381,8 @@ func to_data() -> Dictionary:
 		"allocation": allocation, "balance": balance, "ledger": ledger.duplicate(true), "morale": morale,
 		"cases": cases.duplicate(true), "case_serial": case_serial, "deficit_weeks": deficit_weeks, "morale_home": morale_home,
 		"applicants": applicants.duplicate(true), "applicant_week": applicant_week, "curriculum": curriculum.duplicate(),
-		"emergency_week": emergency_week, "keep_on_books": keep_on_books}
+		"emergency_week": emergency_week, "keep_on_books": keep_on_books,
+		"capital": capital.duplicate(), "has_range": has_range}
 
 
 ## One loaded record put back the way the game keeps it: JSON's floats back to ints,
@@ -1470,6 +1477,14 @@ func from_data(d: Dictionary) -> bool:
 	applicant_week = int(d.get("applicant_week", 0))
 	emergency_week = int(d.get("emergency_week", 0))
 	keep_on_books = int(d.get("keep_on_books", 0))
+	# P1.D4: capital items and the training range. Version 6 and earlier never wrote them;
+	# a save from before this reads as owning nothing, and the range follows the item.
+	capital = {}
+	var raw_cap: Dictionary = d.get("capital", {}) if d.get("capital", {}) is Dictionary else {}
+	for ck in raw_cap:
+		if bool(raw_cap[ck]):
+			capital[String(ck)] = true
+	has_range = bool(d.get("has_range", false)) or capital.has("range")
 	curriculum = []
 	for cg in (d.get("curriculum", []) if d.get("curriculum", []) is Array else []):
 		if cg is String:

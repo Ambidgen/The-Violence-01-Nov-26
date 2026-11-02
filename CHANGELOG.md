@@ -3,6 +3,55 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — EA_TASKS Phase 1 close-out: the three known bugs, the pace, the chief, the bands (2026-11-02)
+
+- **Wolf brain holds cover (B1)**: a lone fighter now dwells in the cover it has
+  (`WOLF_DWELL`, 2.5 s) and only bounds where the route itself is hidden
+  (`WOLF_MAX_EXPOSURE`, one of four samples), instead of re-planning every tick and
+  walking open ground. The 0.A full tier's finding — 0.19 of an unseen fight hidden with
+  the brain on against 0.28 with it off — was the brain being worse than nothing.
+- **The shield gate measures the ratio, not the tally (B2)**: `equip_test` counted rounds
+  that reached the officer, so the unshielded officer was killed early and the shielded
+  one survived the window and accrued more (1.02 vs 0.69). It now measures the share of
+  rounds arriving at his body that got through, the shield's stops being the other half
+  of the denominator.
+- **A beanbag knockdown can be cuffed where he lies (B3)**: `world.cuffable()` accepts a
+  downed suspect, the operation waits up to 30 s for the arrest under police rules, and
+  the arrest counts. Before, a beanbag round ended the operation with nobody arrested,
+  which is why the tool measured the less-lethal order as slower (224 s against 208).
+- **Election night says why (P1.F3)**: the ending lists the run score as rows — each
+  movement, its size and its reason — and the election row states the clean-record test
+  it passed or missed, instead of one grey line of plus and minus.
+- **Contact-aware fast-forward by default (P1.G1)**, **“Skip to the report” (P1.G2)** and
+  **wall time per operation (P1.G3)**: quiet stretches run at three times the speed asked
+  for (capped at 8×), contact returns to 1×, and 1× asked for stays 1×; after 60 simulated
+  seconds of quiet the run can step headless to the end and open the debrief, still
+  deterministic. `op_test` prints a `TIMING` line and carries the numbers in `--json`; the
+  game prints `RUNCLOCK` under `--perf`.
+- **The chief test (P1.H1)**: `tools/chief_compare.py` plays `--chief=sensible` against
+  `--chief=manual` on matched seeds and gates on the manual chief being ahead on the run
+  score in 70% of seeds; CI grew `tier=chief`, shardable with `--first` and joined with
+  `--merge`. `op_test`'s JSON carries `run_score` for any campaign, not just the balance
+  harness's.
+- **Determinism rebaselined in the open (P1.I1)** and **the balance bands assert (P1.I2)**:
+  CI `tier=determinism` reruns every seeded case, annotates each change, writes the fixture
+  and commits it; `tests/balance_bands.json` is `"enforce": true`, so a full matrix fails
+  the tier on a missed band, the quick tier's two-week smoke is never judged, and
+  `--report-only` reproduces an experiment without judging it.
+- **Fixed: `politics.gd` did not load at all.** Nine constants the R1.D–P1.F code used
+  (`SURPLUS_AMOUNT`, `SURPLUS_COOLDOWN`, `SURPLUS_STANDING`, `OVERDRAFT_STANDING_COST`,
+  `FROZEN_STANDING_COST`, `SWEEP_EVERY`, `SWEEP_FLOOR`, `SWEEP_SHARE`, `SWEEP_CAP`) were
+  never declared, and `_poll()` took two arguments while ten call sites passed three. Both
+  are parse errors, so every campaign run in CI came back without its record and the
+  balance matrix reported “Invalid access to property or key 'ops'” rather than the real
+  fault. The numbers are the ones the P1.D/P1.F entries below and `tests/politics_test.gd`
+  describe. Two more faults of the same shape were found in the crayon shorts (a bare
+  `SLATE`, a bare `MOSS`); neither script is loaded by a headless test, so nothing had said
+  so before.
+- **`tools/gd_arity_check.py`**, new and wired into the static CI job: the call-arity and
+  undeclared-name check that `gd47_check` (structure) and `gdparse` (syntax) cannot do, and
+  that would have caught all of the above. 147 files, no findings.
+
 ## Unreleased — native crayon campaign shorts (2026-11-02)
 
 - Replaced all fourteen runtime Remotion short videos with native Godot drawings in `scripts/view/crayon_short.gd`: week card, situation file, route plan, staging, threshold, officer down, debrief, press, case, ally standing, election, end of watch, allocation, and course. Each keeps its distinct composition, animation beats, and campaign meaning in the crayon line language.
@@ -46,6 +95,9 @@ Newest first. The README covers the game as it stands; this file keeps the histo
   Validation in this session was static only — no engine in the sandbox: `gd47_check` clean
   on 143 files, `gdparse` clean on all of `scripts/ tests/ tools/` (including pre-existing
   parse damage in `ui.gd` and `orders_test.gd`, now repaired). Engine harness runs are CI-only.
+  *Corrected 2026-11-02:* `gdparse` parses; it does not resolve names, and `politics.gd` was
+  unloadable in this whole batch (undeclared constants, a three-argument call to a two-argument
+  `_poll`). See the Phase 1 close-out entry above; `tools/gd_arity_check.py` now checks it.
 
 ## Unreleased — EA_TASKS cycle 1.C: the roster bleed (2026-10-29)
 
