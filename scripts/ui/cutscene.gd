@@ -1,24 +1,27 @@
 extends CanvasLayer
-## The opening (1.2): four cutscenes made with Remotion (cinematics/), played before a new
-## campaign and from the title's Prologue. Space, Enter or a click skips the current one;
-## Esc skips the rest. Videos are Ogg Theora in assets/cutscenes.
+## Crayon opening cutscenes, played before a new campaign and from the title's Prologue.
+## These are native Godot drawings (scripts/view/proto), not the legacy Remotion videos.
+## Space, Enter or a click skips the current scene; Esc skips the rest.
 
 signal finished
 
 const SCENES := [
-	["c1_port_carrick", "Port Carrick"],
-	["c2_outgoing_chief", "The Outgoing Chief"],
-	["c3_the_plan", "The Plan"],
-	["c4_forty_weeks", "Forty Weeks"],
+	["c1_port_carrick", "Port Carrick", "res://scripts/view/proto/opening_view.gd"],
+	["c2_outgoing_chief", "The Press Conference", "res://scripts/view/proto/presser_view.gd"],
+	["c3_the_plan", "Jeremy Berry", "res://scripts/view/proto/jeremy_view.gd"],
+	["c4_forty_weeks", "This Machine Kills Tyrants", "res://scripts/view/proto/fettick_view.gd"],
 ]
-const PAPER := Color(0.93, 0.93, 0.91)
-const MID := Color(0.45, 0.45, 0.44)
+const PAPER := Color("#e6dfcd")
+const MID := Color("#45413b")
+const HAND_FONT := preload("res://fonts/PatrickHand.woff2")
 
-var player: VideoStreamPlayer
+var view: Node2D
 var hint: Label
 var title: Label
 var queue: Array = []
 var _hint_t := 0.0
+var _scene_t := 0.0
+var _scene_duration := 0.0
 
 
 func _ready() -> void:
@@ -30,21 +33,25 @@ func _ready() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	bg.gui_input.connect(_on_click)
 	add_child(bg)
-	player = VideoStreamPlayer.new()
-	player.set_anchors_preset(Control.PRESET_FULL_RECT)
-	player.expand = true
-	player.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	player.bus = "Effects"
-	player.finished.connect(_next)
-	add_child(player)
+	title = Label.new()
+	title.add_theme_font_override("font", HAND_FONT)
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", MID)
+	title.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	title.position = Vector2(28, 14)
+	title.size = Vector2(500, 34)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(title)
 	hint = Label.new()
 	hint.text = "Space: next   ·   Esc: skip the opening"
-	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_font_override("font", HAND_FONT)
+	hint.add_theme_font_size_override("font_size", 17)
 	hint.add_theme_color_override("font_color", MID)
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	hint.position = Vector2(-330, -34)
-	hint.size = Vector2(320, 24)
+	hint.position = Vector2(-360, -38)
+	hint.size = Vector2(340, 28)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(hint)
 	visible = false
 
@@ -57,26 +64,53 @@ func play(which: Array = []) -> void:
 
 
 static func available() -> bool:
-	return ResourceLoader.exists("res://assets/cutscenes/%s.ogv" % SCENES[0][0])
+	return ResourceLoader.exists(String(SCENES[0][2]))
+
+
+func _scene_for(key: String) -> Array:
+	for entry: Array in SCENES:
+		if String(entry[0]) == key:
+			return entry
+	return []
 
 
 func _next() -> void:
+	if is_instance_valid(view):
+		view.hide()
+		view.queue_free()
+	view = null
 	while not queue.is_empty():
-		var key: String = queue.pop_front()
-		var path := "res://assets/cutscenes/%s.ogv" % key
-		if ResourceLoader.exists(path):
-			player.stream = load(path)
-			player.play()
-			_hint_t = 3.5
-			hint.modulate.a = 1.0
-			return
+		var key := String(queue.pop_front())
+		var entry := _scene_for(key)
+		if entry.is_empty() or not ResourceLoader.exists(String(entry[2])):
+			continue
+		var script: Script = load(String(entry[2]))
+		if script == null:
+			continue
+		var instance = script.new()
+		if not instance is Node2D:
+			if instance is Node:
+				instance.free()
+			continue
+		view = instance as Node2D
+		add_child(view)
+		# Keep the image above the paper but beneath the title and skip controls.
+		move_child(view, 1)
+		title.text = String(entry[1])
+		_scene_t = 0.0
+		_scene_duration = float(view.call("duration")) if view.has_method("duration") else 0.0
+		_hint_t = 3.5
+		hint.modulate.a = 1.0
+		return
 	stop()
 
 
 func stop() -> void:
 	queue.clear()
-	if player.is_playing():
-		player.stop()
+	if is_instance_valid(view):
+		view.hide()
+		view.queue_free()
+	view = null
 	visible = false
 	finished.emit()
 
@@ -86,6 +120,9 @@ func _process(dt: float) -> void:
 		return
 	_hint_t -= dt
 	hint.modulate.a = clampf(_hint_t, 0.0, 1.0)
+	_scene_t += dt
+	if _scene_duration > 0.0 and _scene_t >= _scene_duration:
+		_next()
 
 
 func _on_click(ev: InputEvent) -> void:
@@ -94,7 +131,10 @@ func _on_click(ev: InputEvent) -> void:
 
 
 func _skip_one() -> void:
-	player.stop()
+	if is_instance_valid(view):
+		view.hide()
+		view.queue_free()
+	view = null
 	_next()
 
 

@@ -1,88 +1,80 @@
 extends CanvasLayer
-## The short cutscenes: five-to-ten second interstitials made with Remotion
-## (cinematics/src/shorts) and shipped as Ogg Theora in assets/cutscenes/shorts.
+## Native crayon campaign shorts. The manifest remains the source of truth for each
+## short's duration, defaults, slots and trigger; the artwork is drawn by Godot at runtime.
 ##
-## They are the same page as the opening — paper, ink, stepped greys, one red that only
-## marks where a plan touched a real room — but they are not a film: each one is a single
-## beat the campaign can call whenever it lands (a week starting, a situation picked off
-## the board, RUN, the first door, an officer down, a debrief, the front page, a case, an
-## ally crossing 25, election night, a funeral, the allocation, a course ending).
-##
-## The words on the page come from the campaign, not from the render: every short is
-## prop-driven, and where a short publishes a `slot` (a plate left empty on purpose the
-## engine may paint its own text into it at play time — a name, a ward, a headline —
-## without re-rendering the video. Everything else is drawn.
-##
-## Typical use, from a screen that already owns its own flow:
-##
-##     var shorts := Shorts.new()          # preload("res://scripts/ui/shorts.gd").new()
-##     add_child(shorts)
-##     shorts.play("s01_week", {"week-title": "IRONWORKS"}, func(): os_week_board())
-##
-## Shorts never block and never require a waiting state: `done` fires when the video
-## ends, when the player skips it (Space, Enter or a click), when it is stopped, or at
-## once if the file is missing — so a caller can always continue on the callback.
+## Shorts never block and never require a waiting state: `done` fires on completion,
+## skip, stop, or a missing/unknown key so a caller can always continue on the callback.
 
 signal done(key: String)
 
 const MANIFEST_PATH := "res://assets/cutscenes/shorts/shorts.json"
-const PAPER := Color(0.93, 0.93, 0.91)
-const MID := Color(0.45, 0.45, 0.44)
-const INK := Color(0.07, 0.07, 0.07)
-const HINT_AFTER := 3.0            # seconds of video before the skip hint fades in
+const VIEW_SCRIPT := "res://scripts/view/crayon_short.gd"
+const HAND_FONT := preload("res://fonts/PatrickHand.woff2")
+const MID := Color("#3a3632")
+const CUE_MAP := {
+	"s01_week": [["click", 1.2], ["click", 2.2], ["stamp", 4.6], ["toll", 5.35]],
+	"s02_situation": [["door", 0.8], ["stamp", 3.5], ["click", 5.3]],
+	"s03_plan": [["click", 1.0], ["stamp", 6.0], ["toll", 7.2]],
+	"s04_staging": [["door", 0.8], ["radio", 2.2], ["radio", 3.4], ["kick", 5.1]],
+	"s05_threshold": [["door", 1.0], ["radio", 3.1], ["shot_pistol_1", 4.9]],
+	"s06_officer_down":
+	[["shot_rifle_1", 0.8], ["shot_rifle_2", 1.0], ["radio", 2.6], ["toll", 6.7]],
+	"s07_debrief": [["click", 1.4], ["stamp", 5.3], ["radio", 6.1]],
+	"s08_press": [["click", 1.1], ["stamp", 6.5]],
+	"s09_case": [["click", 1.4], ["stamp", 6.2]],
+	"s10_ally": [["click", 1.2], ["toll", 5.8]],
+	"s11_election": [["click", 1.0], ["click", 2.2], ["click", 3.4], ["toll", 9.0]],
+	"s12_end_of_watch": [["toll", 6.6]],
+	"s13_allocation": [["click", 1.1], ["stamp", 4.4], ["toll", 5.4]],
+	"s14_course": [["click", 1.0], ["stamp", 5.0]],
+}
 
 static var _cache: Dictionary = {}
+static var _audio_cache: Dictionary = {}
 
-var player: VideoStreamPlayer
-var overlay: Control
+var view: Node2D
 var hint: Label
 var skip_button: Button
 var busy := false
-
 var _key := ""
 var _on_done := Callable()
-var _plates: Array = []            # [{label: Label, slot: Dictionary}]
 var _t := 0.0
+var _duration := 0.0
+var _cue_index := 0
+var _cues: Array = []
+var _effect_players: Array[AudioStreamPlayer] = []
+var _effect_index := 0
+var _bed_player: AudioStreamPlayer
 
 
 func _ready() -> void:
-	layer = 38                     # under the opening's 40
+	layer = 38
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
-
 	var bg := ColorRect.new()
-	bg.color = PAPER
+	bg.color = Color("#8d8a83")
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	bg.gui_input.connect(_on_click)
 	add_child(bg)
-
-	player = VideoStreamPlayer.new()
-	player.set_anchors_preset(Control.PRESET_FULL_RECT)
-	player.expand = true
-	player.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	player.bus = "Effects"
-	player.finished.connect(_on_video_finished)
-	add_child(player)
-
-	overlay = Control.new()
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# a window resize while a short is playing must move the plate text with it
-	overlay.resized.connect(_layout_plates)
-	add_child(overlay)
-
+	var view_script: Script = load(VIEW_SCRIPT)
+	if view_script != null:
+		view = view_script.new() as Node2D
+		view.name = "CrayonShortView"
+		add_child(view)
+		view.hide()
 	hint = Label.new()
 	hint.text = "Space: skip"
-	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_font_override("font", HAND_FONT)
+	hint.add_theme_font_size_override("font_size", 17)
 	hint.add_theme_color_override("font_color", MID)
 	hint.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	hint.position = Vector2(-160, -34)
-	hint.size = Vector2(150, 24)
+	hint.position = Vector2(-170, -36)
+	hint.size = Vector2(150, 28)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hint.modulate.a = 0.0
 	add_child(hint)
-
 	skip_button = Button.new()
 	skip_button.text = "Skip  [Space]"
 	skip_button.focus_mode = Control.FOCUS_NONE
@@ -92,6 +84,14 @@ func _ready() -> void:
 	skip_button.size = Vector2(150, 34)
 	skip_button.pressed.connect(stop)
 	add_child(skip_button)
+	for i in 4:
+		var player := AudioStreamPlayer.new()
+		player.bus = "Effects"
+		add_child(player)
+		_effect_players.append(player)
+	_bed_player = AudioStreamPlayer.new()
+	_bed_player.bus = "Ambience"
+	add_child(_bed_player)
 
 
 # ------------------------------------------------------------------ the catalogue
@@ -116,27 +116,26 @@ static func entries() -> Array:
 	return manifest().get("shorts", [])
 
 
-## One short's entry, or {} .
+## One short's entry, or {} when the key is unknown.
 static func entry(key: String) -> Dictionary:
-	for s in entries():
-		if String(s.get("key", "")) == key:
-			return s
+	for short_entry in entries():
+		if String(short_entry.get("key", "")) == key:
+			return short_entry
 	return {}
 
 
-## The video's path for a key, or "" when the key is unknown.
+## Legacy video path retained for tooling; gameplay no longer loads these files.
 static func video_path(key: String) -> String:
-	var s := entry(key)
-	if s.is_empty():
+	var short_entry := entry(key)
+	if short_entry.is_empty():
 		return ""
 	var dir := String(manifest().get("video", {}).get("dir", "res://assets/cutscenes/shorts"))
 	return "%s/%s.%s" % [dir, key, String(manifest().get("video", {}).get("ext", "ogv"))]
 
 
-## True when the key is known and its video is on disk.
+## True when the key is known and the native crayon view can be loaded.
 static func available(key: String) -> bool:
-	var p := video_path(key)
-	return p != "" and ResourceLoader.exists(p)
+	return not entry(key).is_empty() and ResourceLoader.exists(VIEW_SCRIPT)
 
 
 ## Seconds a short runs, or 0.0.
@@ -147,32 +146,37 @@ static func length(key: String) -> float:
 ## The keys whose `tags` contain tag (e.g. "weekly", "consequence", "in-run").
 static func with_tag(tag: String) -> Array:
 	var out: Array = []
-	for s in entries():
-		if tag in s.get("tags", []):
-			out.append(String(s.get("key", "")))
+	for short_entry in entries():
+		if tag in short_entry.get("tags", []):
+			out.append(String(short_entry.get("key", "")))
 	return out
 
 
 # ------------------------------------------------------------------ playing
-## Play one short. `text` fills published slots (slot id -> String) with the campaign's
-## own words; `on_done` runs when it ends or is skipped. Returns false (and calls
-## on_done at once) if the short is not shipped, so callers need no special case.
+## Play one short. `text` fills published slots (slot id -> String); defaults stay in
+## the manifest. Returns false (and calls on_done at once) for an unknown key.
 func play(key: String, text: Dictionary = {}, on_done: Callable = Callable()) -> bool:
 	if busy:
 		return false
-	if not available(key):
+	if not available(key) or not is_instance_valid(view):
 		if on_done.is_valid():
 			on_done.call()
 		return false
 	_key = key
 	_on_done = on_done
-	_build_plates(key, text)
-	player.stream = load(video_path(key))
-	player.play()
 	_t = 0.0
-	hint.modulate.a = 0.0
+	_duration = length(key)
+	_cues = CUE_MAP.get(key, []).duplicate(true)
+	_cue_index = 0
+	var defaults: Dictionary = entry(key).get("props", {}).duplicate(true)
+	if key == "s05_threshold" and String(defaults.get("variant", "clear")) != "contact":
+		_cues.pop_back()
+	view.call("configure", key, defaults, text, _duration)
+	view.show()
 	visible = true
 	busy = true
+	hint.modulate.a = 0.0
+	_play_bed(key)
 	return true
 
 
@@ -184,39 +188,33 @@ func play_all(keys: Array, texts: Array = [], on_done: Callable = Callable()) ->
 			on_done.call()
 		return
 	var first: String = String(queue.pop_front())
-	var t: Dictionary = texts[0] if texts.size() > 0 else {}
+	var slot_text: Dictionary = texts[0] if texts.size() > 0 else {}
 	var rest := texts.slice(1)
-	play(first, t, func(): play_all(queue, rest, on_done))
+	play(first, slot_text, func(): play_all(queue, rest, on_done))
 
 
 ## Stop early and run the caller's callback exactly once.
 func stop() -> void:
+	if busy:
+		_complete(false)
+
+
+func _complete(emit_done: bool) -> void:
 	if not busy:
 		return
 	busy = false
-	if player.is_playing():
+	if is_instance_valid(view):
+		view.hide()
+	_bed_player.stop()
+	for player in _effect_players:
 		player.stop()
-	player.stream = null
 	visible = false
-	_clear_plates()
 	hint.modulate.a = 0.0
+	var completed_key := _key
 	var cb := _on_done
 	_on_done = Callable()
-	if cb.is_valid():
-		cb.call()
-
-
-func _on_video_finished() -> void:
-	if not busy:
-		return
-	busy = false
-	visible = false
-	_clear_plates()
-	hint.modulate.a = 0.0
-	var key := _key
-	var cb := _on_done
-	_on_done = Callable()
-	done.emit(key)
+	if emit_done:
+		done.emit(completed_key)
 	if cb.is_valid():
 		cb.call()
 
@@ -224,19 +222,30 @@ func _on_video_finished() -> void:
 func _process(dt: float) -> void:
 	if not busy:
 		return
+	var before := _t
 	_t += dt
-	if hint.modulate.a < 1.0 and _t > HINT_AFTER:
-		hint.modulate.a = min(1.0, hint.modulate.a + dt * 2.0)
-	_layout_plates()
+	if before < 3.0 and _t >= 3.0:
+		hint.modulate.a = 0.0
+	if _t > 3.0:
+		hint.modulate.a = minf(1.0, hint.modulate.a + dt * 2.0)
+	while _cue_index < _cues.size() and float(_cues[_cue_index][1]) <= _t:
+		_play_effect(String(_cues[_cue_index][0]))
+		_cue_index += 1
+	if _t >= _duration:
+		_complete(true)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not busy:
 		return
 	var skip := false
-	if event is InputEventKey and (event as InputEventKey).pressed:
-		var k := (event as InputEventKey).keycode
-		skip = k == KEY_SPACE or k == KEY_ENTER or k == KEY_KP_ENTER or k == KEY_ESCAPE
+	if (
+		event is InputEventKey
+		and (event as InputEventKey).pressed
+		and not (event as InputEventKey).echo
+	):
+		var code := (event as InputEventKey).keycode
+		skip = code == KEY_SPACE or code == KEY_ENTER or code == KEY_KP_ENTER or code == KEY_ESCAPE
 	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		skip = true
 	if skip:
@@ -244,55 +253,34 @@ func _unhandled_input(event: InputEvent) -> void:
 		stop()
 
 
-func _on_click(_e: InputEvent) -> void:
-	if busy:
+func _on_click(event: InputEvent) -> void:
+	if busy and event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		stop()
 
 
-# ------------------------------------------------------------------ the plates
-func _build_plates(key: String, text: Dictionary) -> void:
-	_clear_plates()
-	for sl in entry(key).get("slots", []):
-		var id := String(sl.get("id", ""))
-		if not text.has(id):
-			continue
-		var value := String(text[id])
-		if value.strip_edges().is_empty():
-			continue
-		var lab := Label.new()
-		lab.text = value
-		lab.add_theme_color_override("font_color", INK)
-		lab.add_theme_color_override("font_shadow_color", Color(0.93, 0.93, 0.91, 0.85))
-		lab.add_theme_constant_override("shadow_offset_x", 0)
-		lab.add_theme_constant_override("shadow_offset_y", 0)
-		lab.autowrap_mode = TextServer.AUTOWRAP_OFF
-		lab.clip_text = false
-		overlay.add_child(lab)
-		_plates.append({"label": lab, "slot": sl})
-	_layout_plates()
-
-
-func _layout_plates() -> void:
-	if _plates.is_empty():
+func _play_bed(short_key: String) -> void:
+	var name := "amb_city" if short_key == "s04_staging" else "amb_office"
+	var stream := _audio_stream(name)
+	if stream == null:
 		return
-	# The overlay is the full-rect Control the plates are parented to, so its size is the
-	# canvas grid the slots are normalised against. (The viewport's visible rect is in
-	# window pixels, which drift from that grid at any content_scale_factor but 1.0 —
-	# e.g. the --ui-scale test hook, or a resized window mid-video.)
-	var vp: Vector2 = overlay.size if overlay != null and overlay.size.x > 0.0 and overlay.size.y > 0.0 else get_viewport().get_visible_rect().size
-	for p in _plates:
-		var sl: Dictionary = p["slot"]
-		var lab: Label = p["label"]
-		var rect := Rect2(Vector2(float(sl.get("x", 0.0)), float(sl.get("y", 0.0))) * vp,
-			Vector2(float(sl.get("w", 0.2)), float(sl.get("h", 0.05))) * vp)
-		lab.position = rect.position
-		lab.size = rect.size
-		# the plate's own height sets the type, so a slot never overflows its box
-		lab.add_theme_font_size_override("font_size", max(10, int(rect.size.y * 0.62)))
+	_bed_player.stream = stream
+	_bed_player.volume_db = -14.0
+	_bed_player.play()
 
 
-func _clear_plates() -> void:
-	for p in _plates:
-		if is_instance_valid(p["label"]):
-			(p["label"] as Label).queue_free()
-	_plates.clear()
+func _play_effect(name: String) -> void:
+	var stream := _audio_stream(name)
+	if stream == null or _effect_players.is_empty():
+		return
+	var player := _effect_players[_effect_index]
+	_effect_index = (_effect_index + 1) % _effect_players.size()
+	player.stream = stream
+	player.volume_db = -5.0 if name.begins_with("shot_") else -8.0
+	player.play()
+
+
+static func _audio_stream(name: String) -> AudioStream:
+	if not _audio_cache.has(name):
+		var path := "res://assets/sfx/%s.wav" % name
+		_audio_cache[name] = load(path) if ResourceLoader.exists(path) else null
+	return _audio_cache[name]

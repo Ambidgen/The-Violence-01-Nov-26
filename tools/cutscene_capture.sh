@@ -9,20 +9,23 @@
 #
 #   GODOT=/path/to/godot tools/cutscene_capture.sh
 #   GODOT=godot tools/cutscene_capture.sh --which=cutscene --secs=12 --stills=1,4,8,11.5
+#   GODOT=godot tools/cutscene_capture.sh --short=s01_week
 #   tools/cutscene_capture.sh --dry-run            # print the commands, run nothing
 #
 # Env: GODOT (default: ~/godot/godot, else `godot` on PATH), XVFB=1 to wrap in
 # xvfb-run yourself, PYTHON (default python3).
 set -eu
 
-WHICH=cutscene; SECS=12; STILLS=1,4,8; EVERY=0; SCENE=""; DRY=0
+WHICH=cutscene; SECS=12; STILLS=1,4,8; EVERY=0; SCENE=""; SHORT=""; DRY=0
+SECS_SET=0; STILLS_SET=0
 for a in "$@"; do
   case "$a" in
     --which=*) WHICH=${a#*=} ;;
-    --secs=*) SECS=${a#*=} ;;
-    --stills=*) STILLS=${a#*=} ;;
+    --secs=*) SECS=${a#*=}; SECS_SET=1 ;;
+    --stills=*) STILLS=${a#*=}; STILLS_SET=1 ;;
     --every=*) EVERY=${a#*=} ;;
     --scene=*) SCENE=${a#*=} ;;
+    --short=*) SHORT=${a#*=} ;;
     --dry-run) DRY=1 ;;
     -h|--help) grep '^#' "$0" | head -20; exit 0 ;;
     *) echo "cutscene_capture.sh: unknown arg: $a" >&2; exit 2 ;;
@@ -32,6 +35,7 @@ done
 GODOT_BIN=${GODOT:-"$HOME/godot/godot"}
 command -v "$GODOT_BIN" >/dev/null 2>&1 || GODOT_BIN=godot
 NAME=${SCENE##*/}; NAME=${NAME%.gd}; [ -n "$SCENE" ] || NAME=$WHICH
+[ -z "$SHORT" ] || NAME=$SHORT
 OUT="build/cutscene-captures/$NAME"
 PY=${PYTHON:-python3}
 
@@ -48,7 +52,21 @@ if [ "${XVFB:-0}" = 1 ]; then PREFIX="xvfb-run -a"; fi
 # shellcheck disable=SC2086
 run $PREFIX "$GODOT_BIN" --headless --path . --import
 # shellcheck disable=SC2086
-if [ -n "$SCENE" ]; then
+if [ -n "$SHORT" ]; then
+  if [ "$SECS_SET" = 1 ] && [ "$STILLS_SET" = 1 ]; then
+    run $PREFIX "$GODOT_BIN" --path . --fixed-fps 30 --resolution 1600x900 \
+      -s res://tests/cutscene_capture.gd -- --short="$SHORT" --secs="$SECS" --stills="$STILLS" --every="$EVERY" --out="$OUT"
+  elif [ "$SECS_SET" = 1 ]; then
+    run $PREFIX "$GODOT_BIN" --path . --fixed-fps 30 --resolution 1600x900 \
+      -s res://tests/cutscene_capture.gd -- --short="$SHORT" --secs="$SECS" --every="$EVERY" --out="$OUT"
+  elif [ "$STILLS_SET" = 1 ]; then
+    run $PREFIX "$GODOT_BIN" --path . --fixed-fps 30 --resolution 1600x900 \
+      -s res://tests/cutscene_capture.gd -- --short="$SHORT" --stills="$STILLS" --every="$EVERY" --out="$OUT"
+  else
+    run $PREFIX "$GODOT_BIN" --path . --fixed-fps 30 --resolution 1600x900 \
+      -s res://tests/cutscene_capture.gd -- --short="$SHORT" --every="$EVERY" --out="$OUT"
+  fi
+elif [ -n "$SCENE" ]; then
   run $PREFIX "$GODOT_BIN" --path . --fixed-fps 30 --resolution 1600x900 \
     -s res://tests/cutscene_capture.gd -- \
     --scene="$SCENE" --secs="$SECS" --stills="$STILLS" --every="$EVERY" --out="$OUT"
@@ -57,5 +75,5 @@ else
     -s res://tests/cutscene_capture.gd -- \
     --which="$WHICH" --secs="$SECS" --stills="$STILLS" --every="$EVERY" --out="$OUT"
 fi
-run "$PY" tools/make_contact_sheet.py "$OUT" --title "cutscene capture: $NAME (${SECS}s @ fixed 30fps, stills at ${STILLS}s)"
+run "$PY" tools/make_contact_sheet.py "$OUT" --title "cutscene capture: $NAME"
 [ "$DRY" = 1 ] || echo "cutscene_capture.sh: review $OUT/contact-sheet.png"

@@ -1,6 +1,6 @@
 {
   "generator": "cinematics/scripts/manifest.mjs",
-  "note": "Short in-game cutscenes (5-10 s). Rendered by Remotion from cinematics/. The game plays the Ogg Theora files and may draw its own text in the slots.",
+  "note": "Native Godot crayon interstitials (5-10 s), driven by these props and slots. Remotion sources and Ogg Theora renders are archived for reference.",
   "fps": 30,
   "master": {
     "width": 1920,

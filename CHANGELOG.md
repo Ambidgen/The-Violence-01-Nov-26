@@ -3,6 +3,12 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — native crayon campaign shorts (2026-11-02)
+
+- Replaced all fourteen runtime Remotion short videos with native Godot drawings in `scripts/view/crayon_short.gd`: week card, situation file, route plan, staging, threshold, officer down, debrief, press, case, ally standing, election, end of watch, allocation, and course. Each keeps its distinct composition, animation beats, and campaign meaning in the crayon line language.
+- The existing shorts manifest remains the source for duration, defaults, prop values, and slot text. `scripts/ui/shorts.gd` now sequences native scenes, preserves callbacks/skips, and cues the game's ambience and synthesised effects. Legacy `.ogv` files are retained as source artifacts but no longer loaded at runtime; Windows and Linux export presets omit them from shipped builds.
+- Added short-key capture to the displayed cutscene harness and CI workflow, plus `tools/import_godot_project.sh` and `docs/GODOT_SETUP.md` for the primary Godot 4.7.2 setup.
+
 ## Unreleased — EA_TASKS P1.D–P1.F: money curve, allies that come back, the election (2026-11-02)
 
 - **Council overdraft (P1.D2)**: the account may go to −$25,000 before anything freezes. Below

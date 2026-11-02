@@ -8,18 +8,18 @@ is the operating manual for that loop; the pieces are:
 
 | Piece | What it does |
 |---|---|
-| `tests/cutscene_capture.gd` | Displayed (not `--headless`) capture harness: loads a view, runs it at fixed fps, saves PNG stills at chosen times plus a `capture.json` manifest; exits 1 on a blank viewport or when no still was written |
-| `tools/cutscene_capture.sh` | One command locally or in CI: import, capture, contact sheet (`GODOT=`, `XVFB=1`, `--scene=`, `--stills=`, `--dry-run`) |
+| `tests/cutscene_capture.gd` | Displayed (not `--headless`) capture harness: loads a prototype or manifest-configured short, runs it at fixed fps, saves PNG stills plus a `capture.json`; exits 1 on blank output or no stills |
+| `tools/cutscene_capture.sh` | One command locally or in CI: import, capture, contact sheet (`GODOT=`, `XVFB=1`, `--scene=`, `--short=`, `--stills=`, `--dry-run`) |
 | `tools/make_contact_sheet.py` | Pillow contact sheet: labelled tiles (capture time per still) on paper stock |
 | `.github/workflows/cutscene-capture.yml` | The actuator: downloads Godot 4.7.2 from GitHub Releases (cached), installs Xvfb + Pillow, runs `tools/cutscene_capture.sh`, uploads stills + sheet as an artifact and summarises the run |
 
 ## Run it
 
 **In CI (the normal way):** Actions → *cutscene-capture* → Run workflow. Inputs pick
-the prototype view (`cutscene` = the election-night proto in
+a prototype view (`cutscene` = the election-night proto in
 `scripts/view/proto/cutscene_view.gd`, `menu`, `topdown`), an explicit
-`--scene=res://…gd` once production cutscene scenes exist, the run length, and the
-still times. A push to an `arena/*` branch that touches the crayon/proto view files
+`--scene=res://…gd`, or a native short key (the keys in `assets/cutscenes/shorts/shorts.json`), plus
+run length and still times. A push to an `arena/*` branch that touches the crayon/proto view files
 also triggers it. Download the `cutscene-capture-*` artifact: it contains the stills,
 `capture.json`, and `contact-sheet.png`. That sheet is the review surface — judge it
 against the reference plates in `docs/overhaul/`; if it isn't the same hand, the beat
@@ -29,6 +29,7 @@ isn't done, however green CI is.
 
 ```sh
 GODOT=/path/to/godot tools/cutscene_capture.sh --which=cutscene --stills=1,4,8,11.5
+GODOT=/path/to/godot tools/cutscene_capture.sh --short=s11_election --stills=1,5,9
 # or: tools/cutscene_capture.sh --scene=res://scripts/view/proto/cutscene_view.gd
 tools/cutscene_capture.sh --dry-run   # print what would run
 ```
@@ -47,6 +48,19 @@ viewport texture is never drawn, so frame capture silently yields nothing.
 `tests/cutscene_capture.gd` is its CI-grade sibling — same idea, but it refuses to
 succeed on blank frames or zero stills, and writes the manifest the sheet step reads.
 In CI, Xvfb provides the display; locally, your desktop does.
+
+## Opening replacement status
+
+The four opening entries are now native, capturable crayon views rather than videos:
+`opening_view.gd` (Port Carrick), `presser_view.gd` (The Press Conference),
+`jeremy_view.gd` (Jeremy Berry), and `fettick_view.gd` (This Machine Kills Tyrants). The game
+sequences them from `scripts/ui/cutscene.gd`; their durations come from the view timelines,
+and Space/Enter/click and Esc retain the old skip behavior. Capture any one directly with
+`--scene=res://scripts/view/proto/<view>.gd` and choose still times appropriate to its
+full-length timeline. The fourteen campaign shorts are now native, data-driven crayon views
+in `scripts/view/crayon_short.gd`; capture one with `--short=s01_week` (or another key from
+the manifest). The capture harness gets the view props and duration from the same manifest
+used at runtime. The old Remotion videos remain archived but are no longer loaded.
 
 ## Conventions for new cutscene beats
 

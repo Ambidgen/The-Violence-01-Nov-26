@@ -17,6 +17,7 @@ extends SceneTree
 ## Args (all optional):
 ##   --which=cutscene|menu|topdown   prototype view (scripts/view/proto/<which>_view.gd)
 ##   --scene=res://path/to/view.gd    explicit view script; overrides --which
+##   --short=s01_week                configure and capture one native crayon campaign short
 ##   --secs=12                        seconds of fixed-fps time to run
 ##   --stills=1,4,8                   comma-separated times (s) to save as PNG stills
 ##   --every=0                        also save a JPG every N frames (0 = stills only)
@@ -51,8 +52,11 @@ func _init() -> void:
 		stills.append(float(s))
 	stills.sort()
 
+	var short_key := String(args.get("short", ""))
 	var scene_path := String(args.get("scene", ""))
-	if scene_path == "":
+	if short_key != "":
+		scene_path = "res://scripts/view/crayon_short.gd"
+	elif scene_path == "":
 		var which := String(args.get("which", "cutscene"))
 		scene_path = "res://scripts/view/proto/%s_view.gd" % which
 
@@ -72,6 +76,28 @@ func _init() -> void:
 		push_error("cutscene_capture: %s did not construct a view" % scene_path)
 		failed = true
 		return
+	if short_key != "":
+		var manifest_file := FileAccess.open(
+			"res://assets/cutscenes/shorts/shorts.json", FileAccess.READ
+		)
+		var manifest: Dictionary = (
+			JSON.parse_string(manifest_file.get_as_text()) if manifest_file != null else {}
+		)
+		var short_entry: Dictionary = {}
+		for candidate in manifest.get("shorts", []):
+			if String(candidate.get("key", "")) == short_key:
+				short_entry = candidate
+				break
+		if short_entry.is_empty():
+			push_error("cutscene_capture: unknown short key %s" % short_key)
+			failed = true
+			return
+		if not args.has("secs"):
+			secs = float(short_entry.get("seconds", secs))
+		view.call("configure", short_key, short_entry.get("props", {}), {}, secs)
+		if not args.has("stills"):
+			stills = [1.0, minf(4.0, secs * 0.5), maxf(0.5, secs - 0.5)]
+			stills.sort()
 	root.add_child(view)
 
 
@@ -85,7 +111,8 @@ func _process(delta: float) -> bool:
 	if frame_count > 2:
 		var img: Image = root.get_viewport().get_texture().get_image()
 		if img == null or img.is_empty():
-			push_error("cutscene_capture: viewport texture is empty at frame %d (running headless? use Xvfb, not --headless)" % frame_count)
+			var message := "cutscene_capture: viewport texture is empty at frame %d " % frame_count
+			push_error(message + "(running headless? use Xvfb, not --headless)")
 			failed = true
 			quit(1)
 			return true
@@ -115,7 +142,14 @@ func _finish() -> void:
 		return
 	var manifest: Dictionary = {
 		"harness": "tests/cutscene_capture.gd",
-		"viewport": "%dx%d" % [int(root.get_viewport().get_visible_rect().size.x), int(root.get_viewport().get_visible_rect().size.y)],
+		"viewport":
+		(
+			"%dx%d"
+			% [
+				int(root.get_viewport().get_visible_rect().size.x),
+				int(root.get_viewport().get_visible_rect().size.y)
+			]
+		),
 		"secs": secs,
 		"frames": frame_count,
 		"stills": saved_stills,
@@ -124,5 +158,10 @@ func _finish() -> void:
 	if f != null:
 		f.store_string(JSON.stringify(manifest, "  "))
 		f.close()
-	print("cutscene_capture: %d still(s), %d frames -> %s" % [saved_stills.size(), frame_count, out_dir])
+	print(
+		(
+			"cutscene_capture: %d still(s), %d frames -> %s"
+			% [saved_stills.size(), frame_count, out_dir]
+		)
+	)
 	quit(0)
