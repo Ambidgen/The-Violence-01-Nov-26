@@ -166,6 +166,10 @@ func g_lion(n: int) -> void:
 ## A lone regular hunted by two (the Civic Plaza and the Compound, both hunting): in a
 ## live fight with no enemy in sight, the share of the time it is hidden from the threat.
 func g_wolf(n: int) -> void:
+	# B1 (EA_TASKS 2026-11-03): the hidden share is pooled over few long fights, so at 8 or 16
+	# seeds it flipped either way (0.22 vs 0.36 at 8, 0.37 vs 0.23 at 24); from 32 it holds
+	# (0.39 vs 0.28 at 32, 0.35 vs 0.21 at 48). The brain was not backwards; the sample was small.
+	n = maxi(n, 32)
 	var res := {}
 	for on in [true, false]:
 		var acc := {"hid": 0.0, "all": 0.0}

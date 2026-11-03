@@ -583,7 +583,11 @@ func test_entry_timeout_does_not_clear_from_afar() -> void:
 			for o in w.teams[0]["members"]:
 				if o.fighting() and o.room == "HALL":
 					entered = true
-	check(observed_timeout and entered and w.teams[0]["cleared"].has("HALL"),
+	# CL2 (2026-11-03): the approach fallback now waits while the survivor is still gaining
+	# route, so the entry no longer starts with him across the map and the 9 s timeout this
+	# test used to provoke does not occur (observed_timeout is kept for diagnosis). The
+	# invariant is unchanged: the hall is cleared, and only after someone has entered it.
+	check(entered and w.teams[0]["cleared"].has("HALL"),
 		"a long Plaza entry is not marked clear from across the map")
 	w.dispose()
 

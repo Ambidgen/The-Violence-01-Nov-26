@@ -83,13 +83,13 @@ const GATES := {
 	"flashbang": {"measure": "officers hit in the entry of a room held by 3 rifles (fewer)", "dir": -1, "margin": 0.3},
 	"ram": {"measure": "s to the first officer inside, outer doors locked (less)", "dir": -1, "margin": 3.0},
 	"breach": {"measure": "s to the first officer inside, outer doors locked (less)", "dir": -1, "margin": 3.0},
-	# B2: the old measure was the raw number of rounds that reached the officer. It
-	# rewarded dying early — the unshielded officer was killed in the first seconds and
-	# so took fewer rounds, while the shielded one survived the twenty-second window and
-	# accrued more (1.02 against 0.69). The measure is now the share of the rounds that
-	# arrived at his body which got through; the shield's own stops are the denominator's
-	# other half, so survival time no longer decides the gate.
-	"shield": {"measure": "share of rounds reaching the body that got through, 10 m (less)", "dir": -1, "margin": 0.3, "range": true, "pooled": true},
+	# B2: the old measure was the raw number of rounds that reached the officer, which
+	# rewarded dying early (1.02 with the shield against 0.69 without). 2026-11-02 on main
+	# it became the share of rounds reaching his body that got through; without a shield
+	# nothing is stopped there, so that arm always scored 1.0 and the gate compared the
+	# shield with nothing. 2026-11-03: rounds through per round the three rifles fired at
+	# him, pooled, which compares the shielded officer with the unshielded one.
+	"shield": {"measure": "rounds through per round 3 rifles fire at him, 10 m (fewer)", "dir": -1, "margin": 0.05, "range": true, "pooled": true},
 	# An operation records only some ten night recognitions, so the per-run mean was
 	# noisy enough to flip this gate from seed to seed at the documented --n. Pooled over four
 	# times the seeds it settles: at the default --n=12, 0.49 s with the light against 0.54 s
@@ -398,12 +398,13 @@ func t_shield(on: bool, sd: int):
 		w.step()
 		w.events.clear()
 	var v := 0
+	var fired := 0
 	for o in w.ops:
 		if o.team == 1:
 			v += o.hits
-	var stopped: int = int(w.stat.get("shield", 0))
+			fired += int(o.shots)
 	w.dispose()
-	return [v, v + stopped] if v + stopped > 0 else null
+	return [float(v), fired] if fired > 0 else null
 
 
 ## The weapon light's own measure: the recognition seconds recorded against the number of

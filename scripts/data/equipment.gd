@@ -146,7 +146,7 @@ const GEAR := {
 		"desc": "Five sponge rounds, 3-30 m. Knocked down for 3 s, gives up six times in ten. Three in a hundred are hurt; inside 5 m, one in eight is hurt badly enough to go down."},
 	"beanbag": {"name": "Beanbag rounds", "short": "Beanbag", "kg": 0.3, "max": 1, "cost": 80, "who": "any",
 		"needs": "shotgun", "less": true, "shots": 5, "range": 20.0, "min": 4.0, "p_hit": 0.65, "stun": [2.5, 3.5],
-		"blind": 0.0, "give": 0.55, "injury": 0.05, "close": 6.0, "serious_close": 0.2, "act": 0.7,
+		"blind": 0.0, "give": 0.55, "injury": 0.05, "close": 6.0, "serious_close": 0.2, "act": 0.4,
 		"desc": "Five rounds for the pump shotgun, 4-20 m. Knocked down for 2.5-3.5 s, gives up a little over half the time. One in twenty is hurt; inside 6 m, one in five is hurt badly enough to go down. Needs the pump shotgun."},
 }
 

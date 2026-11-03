@@ -911,6 +911,21 @@ func _skip_check(tm: Dictionary, el: Dictionary) -> void:
 	_next_task(tm, el)
 
 
+const APPROACH_STALL_S := 10.0
+const APPROACH_CAP_S := 120.0
+const ENTRY_STALL_S := 20.0
+const ENTRY_GIVE_UP_S := 30.0
+
+
+## CL2: an entry that cannot be made. The room is unchecked, not clear, and says so.
+func _skip_entry(tm: Dictionary, el: Dictionary) -> void:
+	var into: String = el["task"]["into"]
+	el["last_room"] = into
+	tm["skipped"][into] = true
+	w.say("%s cannot reach the %s: not cleared" % [_tag(tm, el), w.level.rooms[into]["title"].to_lower()], "info")
+	_next_task(tm, el)
+
+
 func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 	if el["task"].is_empty():
 		if w.t >= el["retask_t"]:
@@ -974,8 +989,21 @@ func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 				go = all_ready or (any_ready and w.t - ctl.get("first_ready_t", w.t) > 6.0)
 			else:
 				go = any_ready
-			if w.t - el["phase_t"] > 45.0:
+			# CL2 (2026-11-03): the 45 s fallback used to fire on the clock, announcing an
+			# entry while members were still walking a long way round to their stack. Now it
+			# fires only once nobody still on the way has gained route for APPROACH_STALL_S,
+			# with APPROACH_CAP_S as the hard limit.
+			var waited: float = w.t - el["phase_t"]
+			if waited > APPROACH_CAP_S:
 				go = true
+			elif waited > 45.0 and not go:
+				var moving := false
+				for m in al:
+					var d2: Dictionary = entry[m.id]
+					if m.fighting() and not d2["at_stack"] and not _stuck_on(m, d2["stack"], "approach_prog", APPROACH_STALL_S):
+						moving = true
+				if not moving:
+					go = true
 			# Knock and announce (v0.7): the first squad to the door knocks, then gives
 			# the occupants ten seconds
 			if go and el.get("orders", {}).get("knock", false) and not w.knock_done:
@@ -1054,6 +1082,15 @@ func _assault_tick(tm: Dictionary, el: Dictionary, al: Array) -> void:
 			if inside and (done or w.t - el["phase_t"] > 9.0):
 				el["phase"] = "clear"
 				el["phase_t"] = w.t
+			elif not inside and w.t - el["phase_t"] > ENTRY_GIVE_UP_S:
+				# CL2: an entry nobody can reach used to wait for ever. If every entrant has
+				# stopped gaining route to the room, record it as unchecked and move on.
+				var progressing := false
+				for m in al:
+					if m.fighting() and entry[m.id]["enters"] and not _stuck_on(m, entry[m.id]["target"], "entry_prog", ENTRY_STALL_S):
+						progressing = true
+				if not progressing:
+					_skip_entry(tm, el)
 		"clear":
 			var quiet := true
 			for m in al:
@@ -2172,6 +2209,39 @@ func _rule1(o, e) -> void:
 ## one officer moves to where one is, walking in for OC spray (3 m) or a baton (arm's
 ## reach), stepping back for beanbags (4 m and more), while the others cover. True while
 ## moving.
+## A spot near o, at about the same distance from e, with a clear line to e's chest.
+## Twelve bearings around e, nearest to o first. True while moving.
+func _close_in_for_line(o, e, d: float) -> bool:
+	var by: String = e.ticker.get("close_by", "")
+	if by != "" and by != o.id:
+		var other = w.by_id.get(by, null)
+		if other != null and other.alive() and w.t - float(e.ticker.get("close_t", -99.0)) < 2.0:
+			return false
+	var best = null
+	var best_d := INF
+	var base: float = (o.pos - e.pos).angle()
+	for k in 12:
+		var a: float = base + (k + 1) / 2 * (1 if k % 2 == 0 else -1) * PI / 6.0
+		for r in [d, maxf(d - 1.5, 1.0), d + 1.0]:
+			var spot: Vector2 = w.nav.snap(e.pos + Vector2.from_angle(a) * r)
+			var sd: float = spot.distance_to(e.pos)
+			if not w.less_tool_in_range(o, e, sd):
+				continue
+			if not w.geom.sight_clear(spot, o.eye(), e.pos, e.zone_centre("chest")):
+				continue
+			var cost: float = spot.distance_to(o.pos)
+			if cost < best_d:
+				best = spot
+				best_d = cost
+	if best == null:
+		return false
+	e.ticker["close_by"] = o.id
+	e.ticker["close_t"] = w.t
+	w.move_to(o, best, "walk")
+	o.dbg = "finding a line > " + e.id
+	return true
+
+
 func _close_in(o, e) -> bool:
 	if not o.judges or not e.alive() or e.complying or e.civ or e.shows_weapon() or e.stunned(w.t):
 		return false
@@ -2180,6 +2250,9 @@ func _close_in(o, e) -> bool:
 	var d: float = o.pos.distance_to(e.pos)
 	if d > 12.0 or w.less_tool(o, e, d) != "":
 		return false
+	# in range but no clear line (B5): move to the nearest spot at a usable distance that has one
+	if w.less_tool_in_range(o, e, d):
+		return _close_in_for_line(o, e, d)
 	# the smallest move that puts a carried tool in range
 	var want := -1.0
 	for gid in Equipment.LESS_ORDER:
@@ -2203,7 +2276,9 @@ func _close_in(o, e) -> bool:
 	var away: Vector2 = (o.pos - e.pos).normalized() if d > 0.05 else Vector2.RIGHT
 	var spot: Vector2 = w.nav.snap(e.pos + away * want)
 	if want > d and (spot.distance_to(e.pos) < d + 0.3 or not w.geom.sight_clear(spot, 1.6, e.pos, 1.2)):
-		return false
+		# straight back is a wall or has no line (B5: a beanbag's 4 m minimum in a small
+		# house): look around him for a spot at that distance instead
+		return _close_in_for_line(o, e, want)
 	e.ticker["close_by"] = o.id
 	e.ticker["close_t"] = w.t
 	w.move_to(o, spot, "walk")
@@ -2532,7 +2607,7 @@ func _arrest(o) -> bool:
 			if other != null and other.alive() and w.t - e.ticker.get("cuff_t", -99.0) < 30.0:
 				continue
 		var d: float = o.pos.distance_to(e.pos)
-		if d < bd and (d < 3.0 or w.geom.sight_clear(o.pos, o.eye(), e.pos, 0.8)):
+		if d < bd and (d < 3.0 or int(e.ticker.get("gave_up_team", -1)) == o.team or w.geom.sight_clear(o.pos, o.eye(), e.pos, 0.8)):
 			bd = d
 			best = e
 	if best == null:

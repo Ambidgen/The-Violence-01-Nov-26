@@ -1182,7 +1182,11 @@ func visible_enemies(o) -> Array:
 	var out: Array = []
 	for eid in o.tracked:
 		var e = by_id.get(eid, null)
-		if e != null and e.alive() and visible(o, e):
+		# someone who has given up is no longer an enemy unless hostile() still says so
+		# (misjudged, or a trigger already moving). Without this an officer held his aim
+		# on a man kneeling with his hands up while an armed man stood beside him
+		# (EA_TASKS B3 follow-up, 2026-11-03; fuzz seed 5252 matches 17 and 22).
+		if e != null and e.alive() and visible(o, e) and (not e.complying or hostile(o, e)):
 			out.append(e)
 	return out
 
@@ -1267,6 +1271,10 @@ func _judge(o, e) -> void:
 		else:
 			j["v"] = "unknown"
 			say("%s: %s shows no weapon" % [o.id, e.id], "info")
+	elif v == "unknown" and e.complying:
+		# he has given up since he was judged (B5/B6, EA_TASKS 2026-11-03): judge him afresh
+		# as someone giving up, or he stays a live contact and nobody ever moves in to cuff
+		o.judged.erase(e.id)
 	elif v == "unknown" and (e.shows_weapon() or attacking(e, o)):
 		j["v"] = "threat"
 
@@ -1483,9 +1491,17 @@ func surrender(e, by) -> void:
 	e.stance_goal = Op.CROUCH
 	e.ticker["hands"] = INF
 	e.ticker.erase("retreat")
+	# The late-shot window is for an officer who was already firing: his trigger is
+	# committed and takes a moment to stop. An officer merely covering someone he was not
+	# cleared to shoot gets none, or giving up would itself license the shot (B3, EA_TASKS:
+	# an unarmed man who never showed a weapon was shot as he raised his hands).
 	for x in ops:
-		if x.judges and x.alive() and x.aim.get("tid", "") == e.id:
+		if x.judges and x.alive() and x.aim.get("tid", "") == e.id and x.aim.get("fire", false):
 			x.ticker["late_" + e.id] = t + late_stop(x)
+	# the team he gave up to knows where he is, in sight or not (EA_TASKS B5: a man who gave
+	# up kneeling out of the hall's line was never cuffed while the squad cleared on)
+	if by != null:
+		e.ticker["gave_up_team"] = by.team
 	say("%s gives up: hands up, weapon down (%s)" % [e.id, by.id if by != null else "nobody"], "kill")
 	emit({"type": "float", "p": e.pos, "text": "HANDS UP"})
 	emit({"type": "surrender", "id": e.id})
@@ -2056,8 +2072,23 @@ func less_tool(o, e, d: float) -> String:
 		# pepper is no use on someone already blinded, or masked
 		if float(sp.get("blind", 0.0)) > 0.0 and e != null and (e.blind(t) or e.masked()):
 			continue
+		# B5 (EA_TASKS): no line, no shot. Officers fired beanbags and 40 mm rounds into
+		# the bedroom wall from the hall (about 1 hit in 9); _close_in now finds a line.
+		if e != null and not geom.sight_clear(o.pos, o.eye(), e.pos, e.zone_centre("chest")):
+			continue
 		return gid
 	return ""
+
+
+## True if o carries a less-lethal tool that would be in range of e at distance d, line or not.
+func less_tool_in_range(o, e, d: float) -> bool:
+	for gid in Equipment.LESS_ORDER:
+		if int(o.gear.get(gid, 0)) <= 0:
+			continue
+		var sp: Dictionary = Equipment.GEAR[gid]
+		if d <= float(sp["range"]) and d >= float(sp.get("min", 0.0)):
+			return true
+	return false
 
 
 func _less_lethal_done(o, a: Dictionary) -> void:
@@ -2069,7 +2100,12 @@ func _less_lethal_done(o, a: Dictionary) -> void:
 	var d: float = o.pos.distance_to(e.pos)
 	var p: float = float(spec["p_hit"]) * (1.0 - 0.3 * d / float(spec["range"]))
 	var clear: bool = geom.sight_clear(o.pos, o.eye(), e.pos, e.zone_centre("chest"))
-	var hit: bool = clear and rng.randf() < p
+	if not clear:
+		# B5: he ducked or moved out of the line during the wind-up; the officer holds the
+		# round (kept, not fired, nothing on the record) and tries again when he has a line
+		o.gear[tool] = int(o.gear[tool]) + 1
+		return
+	var hit: bool = rng.randf() < p
 	emit({"type": "less", "from": o.pos, "to": e.pos, "id": o.id, "hit": hit, "tool": tool})
 	if LESS_SOUND.has(tool):
 		emit_sound(o, LESS_SOUND[tool])
@@ -3074,7 +3110,13 @@ func _hit(a, zn: Array, lat: float, u: Vector2, shooter, energy := 1.0, walls :=
 		if sw["pen"] == "heavy" and rng.randf() < 0.5:
 			stops = false
 		if stops:
-			a.ticker["flinch_until"] = maxf(a.ticker.get("flinch_until", -1.0), t + 0.2)
+			# B2 (EA_TASKS): a shield is meant to soak sustained fire. A flinch on every stop let
+			# three carbines pin the carrier indefinitely (no return fire) until a head or leg
+			# round got through, so a shielded officer lost fights an unshielded one won.
+			# One flinch per 0.6 s keeps the jolt of a hit without the lock.
+			if t - float(a.ticker.get("shield_flinch_t", -99.0)) >= 0.6:
+				a.ticker["shield_flinch_t"] = t
+				a.ticker["flinch_until"] = maxf(a.ticker.get("flinch_until", -1.0), t + 0.2)
 			emit({"type": "shield", "p": a.pos, "id": a.id, "dir": u})
 			say("%s: shield stops %s's round" % [a.id, shooter.id], "hit")
 			stat["shield"] = stat.get("shield", 0) + 1
@@ -3291,6 +3333,8 @@ func _melee() -> void:
 			var lose = e if win == o else o
 			win.ticker["melee_until"] = t + 0.8
 			lose.ticker["melee_until"] = t + 0.8
+			if _struggle(win, lose):
+				continue
 			start_action(win, "melee", 0.6)
 			win.armed_t = t
 			raise_alert(win, Op.RED)
@@ -3299,6 +3343,70 @@ func _melee() -> void:
 			_down(lose, win, true, "melee")
 			if not o.alive():
 				break
+
+
+## Hand-to-hand that is not a killing (B6, EA_TASKS 2026-11-03). Contact used to kill
+## whoever reacted second, so an officer who reached an unarmed man he was not cleared to
+## shoot killed him (9 of 12 runs in the less-lethal gates), and an unarmed man who reached
+## an officer killed him bare-handed. Now, when the officer is under police rules and the
+## other shows no weapon and may not be shot, or when the winner has no weapon at all, it
+## is a struggle: both are tied up for STRUGGLE_S, the officer subdues him at a chance that
+## rises with each other officer within reach, either may be hurt, and a man who breaks
+## free cannot be grabbed again for a while. Slower and riskier than a tool, by design.
+const STRUGGLE_S := 12.0
+const STRUGGLE_SUBDUE := 0.2      # alone
+const STRUGGLE_HELP := 0.15       # per other officer within STRUGGLE_REACH
+const STRUGGLE_REACH := 2.5
+const STRUGGLE_HURT := 0.1        # each side, per struggle
+const STRUGGLE_AGAIN_S := 15.0
+
+func _struggle(win, lose) -> bool:
+	var cop = null
+	var man = null
+	if win.judges and not lose.judges:
+		cop = win; man = lose
+	elif lose.judges and not win.judges:
+		cop = lose; man = win
+	# no weapon at all (never had one, or dropped it); out of ammunition is not unarmed
+	var win_unarmed: bool = win.weapons["rifle"]["lost"] and win.weapons["pistol"]["lost"]
+	if cop == null:
+		if not win_unarmed:
+			return false
+		# an unarmed winner shoves or strikes; nobody dies of it
+		lose.ticker["stun_until"] = maxf(lose.ticker.get("stun_until", -1.0), t + 1.5)
+		say("%s knocks %s back hand to hand" % [win.id, lose.id], "hit")
+		return true
+	if man.civ or man.shows_weapon() or cleared_to_fire(cop, man):
+		if not (win == man and win_unarmed):
+			return false
+	var until: float = t + STRUGGLE_S
+	cop.ticker["freeze_until"] = maxf(cop.ticker.get("freeze_until", -1.0), until)
+	# held, not stunned: a stun would also drop his defiance in the surrender roll
+	man.ticker["freeze_until"] = maxf(man.ticker.get("freeze_until", -1.0), until)
+	cop.ticker["melee_until"] = until
+	man.ticker["melee_until"] = until + STRUGGLE_AGAIN_S
+	cop.aim = {}
+	var help := 0
+	for m in _near_fast(man.pos, STRUGGLE_REACH):
+		if m != cop and m.judges and m.alive() and m.team == cop.team:
+			help += 1
+	var p: float = minf(0.9, STRUGGLE_SUBDUE + STRUGGLE_HELP * help)
+	add_stress(cop, 0.2, "struggle")
+	emit({"type": "float", "p": man.pos, "text": "STRUGGLE"})
+	if incident != null:
+		incident.on_less_lethal(cop, man, "hands", true, "")
+	if rng.randf() < STRUGGLE_HURT:
+		cop.wounds += 1
+		say("%s hurt in the struggle with %s" % [cop.id, man.id], "hit")
+	if rng.randf() < STRUGGLE_HURT:
+		man.wounds += 1
+		say("%s hurt in the struggle with %s" % [man.id, cop.id], "hit")
+	if rng.randf() < p:
+		say("%s wrestles %s down (%d helping)" % [cop.id, man.id, help], "kill")
+		surrender(man, cop)
+	else:
+		say("%s breaks free of %s" % [man.id, cop.id], "info")
+	return true
 
 
 ## Anyone at all within contact distance (cheap test before the real one).
