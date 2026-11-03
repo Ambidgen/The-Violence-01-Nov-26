@@ -1110,7 +1110,7 @@ func _roster_strip(parent: Control, c) -> void:
 func _dept_strip(parent: Control) -> void:
 	var d = main.campaign.dept
 	var v := _card(parent)
-	var red: bool = d.balance < 0
+	var red: bool = d.frozen()   # P1.D2: the freeze is the overdraft limit, not zero
 	_text(
 		v,
 		(

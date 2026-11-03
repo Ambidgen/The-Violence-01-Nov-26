@@ -340,7 +340,16 @@ func _money_by_the_book() -> void:
 	var rows: Array = d.forecast(4, [{"due": d.week + 1, "kind": "lawsuit", "cost": 40000},
 		{"due": d.week + 2, "kind": "story", "cost": 999999}])
 	_check(rows.size() == 4 and int(rows[0]["balance"]) == bal0 + swing, "week one of the forecast is this week's end ($%s)" % Department.money(int(rows[0]["balance"])))
-	_check(int(rows[1]["lawsuits"]) == 40000 and int(rows[3]["balance"]) == bal0 + 4 * swing - 40000,
+	# the forecast charges 2% a week on a negative row, so the four weeks compound: replay the
+	# same arithmetic here rather than pretending the overdraft is free
+	var expected := bal0
+	for i in 4:
+		expected += swing
+		if i == 1:
+			expected -= 40000
+		if expected < 0:
+			expected -= int(ceil(-expected * Department.OVERDRAFT_INTEREST))
+	_check(int(rows[1]["lawsuits"]) == 40000 and int(rows[3]["balance"]) == expected,
 		"the filed lawsuit lands in its week and stays landed; a story costs trust, not money ($%s by week %d)" % [Department.money(int(rows[3]["balance"])), int(rows[3]["week"])])
 	# and the books agree with the forecast's first row when nothing is spent
 	d.next_week()
@@ -359,6 +368,7 @@ func _next_week_forecast() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 99
 	var wrong := 0
+	var detail := ""
 	var kinds := {}
 	for wk in 12:
 		for r in d.officers:
@@ -390,8 +400,10 @@ func _next_week_forecast() -> void:
 		var got: int = d.available().size()
 		if got != int(f["fit"]):
 			wrong += 1
+			if detail == "":
+				detail = "week %d: forecast %d fit, the week started with %d (%s)" % [d.week, int(f["fit"]), got, str(f)]
 			print("    week %d: forecast %d fit (%s), the week started with %d" % [d.week, int(f["fit"]), str(f), got])
-	_check(wrong == 0, "the forecast matched the week in 12 of 12 (statuses seen: %s)" % ", ".join(kinds.keys()))
+	_check(wrong == 0, "the forecast matched the week in %d of 12 (statuses seen: %s; first miss: %s)" % [12 - wrong, ", ".join(kinds.keys()), detail])
 
 
 ## EA_TASKS P1.C3: the emergency lateral reports the same week at twice a lateral's
@@ -513,8 +525,11 @@ func _overdraft_d2() -> void:
 	d.found(31337)
 	var alloc: int = d.allocation
 	var pr: int = d.payroll()
-	d.balance = -1000
-	_check(not d.frozen(), "at -$1,000 the account is inside the overdraft, not frozen")
+	# the allocation ($32,000) is bigger than the payroll ($27,484) in the founding week, so
+	# a -$1,000 start is back in the black by the end of the week and pays no interest: start
+	# deep inside the overdraft instead, or this measures nothing
+	d.balance = -24000
+	_check(not d.frozen(), "at -$24,000 the account is inside the overdraft, not frozen")
 	_check(d.emergency_blocked() == "", "hiring is open inside the overdraft")
 	var b0: int = d.balance
 	d.next_week()
@@ -532,6 +547,9 @@ func _overdraft_d2() -> void:
 	d.balance = Department.OVERDRAFT_LIMIT - 1
 	_check(d.frozen() and d.recruit(false).is_empty() and d.enrol(d.available()[0], "judgment") != "",
 		"one past the limit the freeze holds: no hiring, no courses")
+	# the week's money moves first, so a balance one dollar past the limit is back above it
+	# by the time the report is written; go deep enough that the week ends below it
+	d.balance = Department.OVERDRAFT_LIMIT - 40000
 	var lines: Array = d.next_week()
 	_check(lines.filter(func(l): return String(l).contains("overdraft limit")).size() >= 1, "the week's report names the overdraft limit")
 

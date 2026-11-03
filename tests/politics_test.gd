@@ -14,6 +14,26 @@ var problems := 0
 var _low_leaks := 0
 
 
+## A JSON document with every object's keys in order. `to_data()` writes its top-level keys
+## in a fixed order, but a dictionary rebuilt by `from_data` can hold the same keys in the
+## order the save listed them, so a byte comparison of two saves reports a difference that
+## no player would ever see. (2026-11-02: both save round trips failed on exactly that.)
+func _canon(v):
+	if v is Dictionary:
+		var keys: Array = v.keys()
+		keys.sort()
+		var out := {}
+		for k in keys:
+			out[k] = _canon(v[k])
+		return out
+	if v is Array:
+		var arr: Array = []
+		for x in v:
+			arr.append(_canon(x))
+		return arr
+	return v
+
+
 ## The first place two JSON documents differ, so a failing save round trip names its own
 ## key instead of printing two walls of numbers the annotation would truncate anyway.
 func _json_diff(a: String, b: String) -> String:
@@ -164,7 +184,9 @@ func _init() -> void:
 	var c5 = Campaign.new()
 	c5.from_data(JSON.parse_string(j))
 	var j5 := JSON.stringify(c5.to_data())
-	_check(j5 == j, "the campaign, politics included, survives a save (differs at: %s)" % _json_diff(j, j5))
+	var c5s := JSON.stringify(_canon(JSON.parse_string(j5)))
+	var cs := JSON.stringify(_canon(JSON.parse_string(j)))
+	_check(c5s == cs, "the campaign, politics included, survives a save (differs at: %s)" % _json_diff(cs, c5s))
 	# Q3: a cleared case leaks by the officer's integrity, not just its evidence
 	_check(Politics.leak_p("video", 60) > Politics.leak_p("witness", 60), "video still leaks more than witnesses at the same name")
 	_check(Politics.leak_p("video", 10) > Politics.leak_p("video", 95), "integrity 10 leaks (%.2f) more than integrity 95 (%.2f)" % [Politics.leak_p("video", 10), Politics.leak_p("video", 95)])
@@ -205,8 +227,9 @@ func _init() -> void:
 	var jg := JSON.stringify(cg.politics.to_data())
 	var pg = Politics.new()
 	pg.from_data(JSON.parse_string(jg), 17)
-	_check(JSON.stringify(pg.to_data()) == jg and pg.last_grant == 1,
-		"the grant week survives a save (differs at: %s)" % _json_diff(jg, JSON.stringify(pg.to_data())))
+	var pgs := JSON.stringify(_canon(JSON.parse_string(JSON.stringify(pg.to_data()))))
+	var jgc := JSON.stringify(_canon(JSON.parse_string(jg)))
+	_check(pgs == jgc and pg.last_grant == 1, "the grant week survives a save (differs at: %s)" % _json_diff(jgc, pgs))
 	# Q10: chatter priced in the briefing, and the suggestion sized by it
 	var sit: Dictionary = Situations.make("event", 4242, 1, 0)
 	var ch: Dictionary = Situations.chatter(sit)

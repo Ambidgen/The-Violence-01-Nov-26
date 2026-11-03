@@ -168,6 +168,45 @@ func _wrap_lines(text: String, size: int, max_width: float) -> Array[String]:
 	return result
 
 
+## A van, drawn the same way in the office and civic sheets. It lives on the base script
+## because both sheets use it and neither extends the other (civic called `_draw_van` and
+## could not compile, 2026-11-02: the function was only on the office sheet).
+func _draw_van(c: Vector2, sc: float, seed: int) -> void:
+	var r := Rect2(c - Vector2(89, 39) * sc, Vector2(178, 78) * sc)
+	C.hatch_rect(self, r, _alpha(C.SLATE_LIGHT, _reveal(1.0, 0.5)), 3.7, -0.6, seed, 2.4)
+	C.outline(self, C.rect_poly(r), DARK, 3.0, seed + 1)
+	for side in [-1.0, 1.0]:
+		C.hatch(
+			self,
+			C.ellipse_poly(
+				c + Vector2(side * 52 * sc, 36 * sc), 19 * sc, 14 * sc, 14, seed + 2, 0.12
+			),
+			DARK,
+			4.0,
+			0.3,
+			seed + 3,
+			2.0
+		)
+	C.hatch(
+		self,
+		C.ellipse_poly(c + Vector2(-10 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 4),
+		RED,
+		3.4,
+		0.1,
+		seed + 5,
+		3.0
+	)
+	C.hatch(
+		self,
+		C.ellipse_poly(c + Vector2(20 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 6),
+		BLUE,
+		3.4,
+		-0.4,
+		seed + 7,
+		3.0
+	)
+
+
 func _slot(id: String, fallback: String) -> String:
 	if slots.has(id) and not String(slots[id]).strip_edges().is_empty():
 		return String(slots[id])
