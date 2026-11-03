@@ -1589,7 +1589,7 @@ func _applicants() -> void:
 		var rec: Dictionary = r
 		# P1.D1: the four-week forecast with this hire priced in, so the button says
 		# which week goes into the red before the chief commits — and asks first.
-		var fc := d.forecast_after("hire", Department.applicant_cost(r), Courses.pay(r))
+		var fc: Array = d.forecast_after("hire", Department.applicant_cost(r), Courses.pay(r))
 		var worst := Department.forecast_worst(fc)
 		var deficit_text := ""
 		if not worst.is_empty():
@@ -1600,26 +1600,33 @@ func _applicants() -> void:
 				"Hire  ($%s now, payroll +$%s a week)%s"
 				% [Department.money(Department.applicant_cost(r)), Department.money(Courses.pay(r)), deficit_text]
 			),
-			func():
-				if worst.is_empty():
-					_hire_applicant(rec)
-				else:
-					_confirm(
-						"HIRE INTO THE RED?",
-						(
-							"Hiring %s %s costs $%s now and +$%s a week in payroll. On these numbers week %d goes to -$%s. Inside the council's overdraft that is allowed (with weekly interest); past the -$%s limit hiring freezes. Sign anyway?"
-							% [
-								rec["rank"], rec["name"], Department.money(Department.applicant_cost(rec)),
-								Department.money(Courses.pay(rec)), int(worst["week"]),
-								Department.money(-int(worst["balance"])), Department.money(-d.OVERDRAFT_LIMIT)
-							]
-						),
-						func(): _hire_applicant(rec),
-						func(): _roster()
-					)
+			func(): _hire_or_confirm(rec, worst)
 			)
 		hb.disabled = d.frozen()
 		hb.tooltip_text = String(UI.officer_file(r)) + (("\n" + deficit_text.trim_prefix(" — ")) if deficit_text != "" else "")
+
+
+## EA_TASKS P1.D1: hire now, or confirm first when the forecast goes into the red.
+## (A named method: the multi-line lambda here was a parse error in Godot 4.7.2,
+## "Unindent doesn't match the previous indentation level" at the closing paren.)
+func _hire_or_confirm(rec: Dictionary, worst: Dictionary) -> void:
+	var d = main.campaign.dept
+	if worst.is_empty():
+		_hire_applicant(rec)
+	else:
+		_confirm(
+			"HIRE INTO THE RED?",
+			(
+				"Hiring %s %s costs $%s now and +$%s a week in payroll. On these numbers week %d goes to -$%s. Inside the council's overdraft that is allowed (with weekly interest); past the -$%s limit hiring freezes. Sign anyway?"
+				% [
+					rec["rank"], rec["name"], Department.money(Department.applicant_cost(rec)),
+					Department.money(Courses.pay(rec)), int(worst["week"]),
+					Department.money(-int(worst["balance"])), Department.money(-d.OVERDRAFT_LIMIT)
+				]
+			),
+			func(): _hire_applicant(rec),
+			func(): _roster()
+		)
 
 
 ## EA_TASKS P1.C3: an experienced officer from a neighbouring force, on duty this week,
