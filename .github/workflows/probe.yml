@@ -1,0 +1,47 @@
+# A one-purpose workflow: ask the engine which block of scripts/ui/ops_ui.gd it
+# cannot parse (EA_TASKS B6). The static checks accept the file; Godot refuses it
+# with "Unindent doesn't match the previous indentation level" and prints no line,
+# so tools/parse_bisect.py bisects the file with `--check-only`. Runs only when the
+# probe itself changes, so it never adds time to the release gate.
+name: parse probe
+
+on:
+  push:
+    branches: ["arena/**"]
+    paths: ["tools/parse_bisect.py", ".github/workflows/probe.yml"]
+  workflow_dispatch:
+
+jobs:
+  bisect:
+    name: bisect ops_ui.gd
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: cache the engine
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-4.7.2-stable
+      - name: install Godot 4.7.2
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/godot
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
+          unzip -q -o /tmp/godot.zip -d ~/godot
+          mv ~/godot/Godot_v4.7.2-stable_linux.x86_64 ~/godot/godot || true
+          chmod +x ~/godot/godot
+      - name: import the project
+        run: ~/godot/godot --headless --path . --import || true
+      - name: bisect
+        run: GODOT=$HOME/godot/godot python3 tools/parse_bisect.py scripts/ui/ops_ui.gd
+      - name: also try the other big UI scripts
+        if: always()
+        run: |
+          for f in scripts/main.gd scripts/ui/city_map.gd scripts/ui/front.gd; do
+            echo "== $f"
+            GODOT=$HOME/godot/godot python3 tools/parse_bisect.py "$f" || true
+          done
