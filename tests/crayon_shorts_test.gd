@@ -34,6 +34,11 @@ func _init() -> void:
 			return
 		view.free()
 	print("CRAYON_SHORTS_OK count=%d" % entries.size())
+	# The shorts cache one paper texture and one font on their scripts; quitting with them
+	# held makes the engine report "N resources still in use at exit", which fails the
+	# suite. ui_walk releases the same caches for the same reason.
+	load("res://scripts/view/crayon_short_base.gd").set("_paper_cache", null)
+	load("res://scripts/view/crayon.gd").set("font", null)
 	quit(0)
 
 

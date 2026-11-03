@@ -31,6 +31,7 @@ From the repository root:
 
 ```sh
 python3 tools/gd47_check.py                 # static audit, not a Godot parser
+python3 tools/gd_arity_check.py             # call arity, undeclared names, string + number
 python3 tools/sync_version.py --check       # runtime/project/export metadata
 python3 -m unittest discover -s tests -p test_runner.py -v
 tools/run_tests.sh --list                  # available tiers and suites

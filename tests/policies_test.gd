@@ -8,8 +8,8 @@ extends SceneTree
 ## same way twice (deterministic, not random); the desk is settled **before** the first
 ## operation and never left blocking the week; the policies actually differ; the call
 ## plan respects the policy's cap and priority and only offers open situations; kit is
-## bought only by the policies that buy kit; the Gate 1 bands file is well formed and is
-## still report-only.
+## bought only by the policies that buy kit; the Gate 1 bands file is well formed and
+## asserts (P1.I2) — a full matrix fails the tier on a miss, the two-week smoke never does.
 
 const Campaign = preload("res://scripts/campaign/campaign.gd")
 const Policies = preload("res://tests/policies.gd")
@@ -149,13 +149,13 @@ func _init() -> void:
 		check(signed == (hired_on and below > fit0), "%s: %s the emergency lateral at %d fit" % [pol6, "signs" if signed else "does not sign", fit0])
 		check(int(rc.dept.keep_on_books) == (keep_rule if hired_on else 0), "%s: standing order %d" % [pol6, int(rc.dept.keep_on_books)])
 
-	# ---- the bands file: well formed, every metric known, still report-only
+	# ---- the bands file: well formed, every metric known, asserting (P1.I2)
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://tests/balance_bands.json"))
 	check(parsed is Dictionary, "balance_bands.json parses")
 	var bands: Dictionary = parsed if parsed is Dictionary else {}
 	check(int(bands.get("gate", 0)) == 1, "it is the Gate 1 file")
-	check(String(bands.get("status", "")) == "report-only" and not bool(bands.get("enforce", true)),
-		"and it is report-only until P1.I (status %s, enforce %s)" % [bands.get("status"), str(bands.get("enforce"))])
+	check(String(bands.get("status", "")) == "asserting" and bool(bands.get("enforce", false)),
+		"and it asserts on a full matrix, never on the smoke (status %s, enforce %s)" % [bands.get("status"), str(bands.get("enforce"))])
 	var known := ["min_fit", "weeks_fit_below_12", "weeks_below_zero", "weeks_below_zero_1_12", "balance_end",
 		"balance_min", "balance_max", "unattended", "officers_killed", "officers_killed_per_op", "civ_killed",
 		"findings", "allies_lost_end", "allies_regained", "run_score", "kept_share", "ops", "successes", "failures"]

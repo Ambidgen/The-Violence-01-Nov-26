@@ -115,6 +115,7 @@ save_test.gd|quick|600|exit|
 story_test.gd|quick|300|exit|
 politics_test.gd|quick|600|exit|
 rogue_test.gd|quick|600|exit|
+pacing_test.gd|quick|120|exit|
 policies_test.gd|quick|300|exit|
 kit_proposal_test.gd|quick|300|exit|
 rogue_balance_test.gd|quick|1200|exit|-- --smoke

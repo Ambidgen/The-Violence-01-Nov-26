@@ -121,11 +121,16 @@ func _txt(
 ) -> void:
 	if text.is_empty() or reveal <= 0.0:
 		return
-	var lines := (
-		_wrap_lines(text, size, max_width)
-		if max_width > 0.0
-		else text.to_upper().split("\n", false)
-	)
+	# Declared, not inferred: the two arms of the ternary below are an Array[String] and a
+	# PackedStringArray, so `:=` infers Variant and 4.7 treats that as an error — which is
+	# why no short could be constructed and crayon_shorts_test could not load its scenes
+	# (2026-11-02). Both arms are turned into the same Array[String] here.
+	var lines: Array[String] = []
+	if max_width > 0.0:
+		lines = _wrap_lines(text, size, max_width)
+	else:
+		for part in text.to_upper().split("\n", false):
+			lines.append(String(part))
 	var current_y := at.y
 	for line_text in lines:
 		var fitted := size
@@ -161,6 +166,45 @@ func _wrap_lines(text: String, size: int, max_width: float) -> Array[String]:
 		if not line_text.is_empty():
 			result.append(line_text)
 	return result
+
+
+## A van, drawn the same way in the office and civic sheets. It lives on the base script
+## because both sheets use it and neither extends the other (civic called `_draw_van` and
+## could not compile, 2026-11-02: the function was only on the office sheet).
+func _draw_van(c: Vector2, sc: float, seed: int) -> void:
+	var r := Rect2(c - Vector2(89, 39) * sc, Vector2(178, 78) * sc)
+	C.hatch_rect(self, r, _alpha(C.SLATE_LIGHT, _reveal(1.0, 0.5)), 3.7, -0.6, seed, 2.4)
+	C.outline(self, C.rect_poly(r), DARK, 3.0, seed + 1)
+	for side in [-1.0, 1.0]:
+		C.hatch(
+			self,
+			C.ellipse_poly(
+				c + Vector2(side * 52 * sc, 36 * sc), 19 * sc, 14 * sc, 14, seed + 2, 0.12
+			),
+			DARK,
+			4.0,
+			0.3,
+			seed + 3,
+			2.0
+		)
+	C.hatch(
+		self,
+		C.ellipse_poly(c + Vector2(-10 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 4),
+		RED,
+		3.4,
+		0.1,
+		seed + 5,
+		3.0
+	)
+	C.hatch(
+		self,
+		C.ellipse_poly(c + Vector2(20 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 6),
+		BLUE,
+		3.4,
+		-0.4,
+		seed + 7,
+		3.0
+	)
 
 
 func _slot(id: String, fallback: String) -> String:

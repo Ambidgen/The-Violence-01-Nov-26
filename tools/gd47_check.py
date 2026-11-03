@@ -21,6 +21,8 @@ Checks
                                 and 4.7 rejects it (the 4.4 code relied on it twice)
   5. removed/renamed APIs     - the GDScript-incompatible changes from 4.4 -> 4.7
   6. statements in class scope- code that escaped its function after a bad merge
+  7. indented members         - a class-scope `var`/`const` pushed under a comment by a bad
+                                edit, which makes every later use of it undeclared
 
 Exit code 0 = clean, 1 = problems found.
 """
@@ -228,6 +230,47 @@ def check_file(path: Path, quiet: bool) -> list[str]:
             continue
         if not CLASS_SCOPE_OK.match(line):
             problems.append(f"{path}:{i}: statement at class scope (merge damage?): {line.strip()[:60]}")
+
+    # -- 7. members indented out of scope -------------------------------------
+    # A `var` at class scope that is indented under a comment reads as a local of nothing:
+    # every use of it later in the file is "Identifier not declared", the script does not
+    # compile, and every script that preloads it takes the fault too (main.gd's `_perf` and
+    # `_run_start`, 2026-11-02: ops_ui.gd, the walk, and the game were all unloadable from
+    # an edit that added two spaces of indent). Members of an inner `class` are legal, and
+    # so are locals inside a `func`; anything else indented is a mistake.
+    blocks: list[tuple[int, str]] = []          # (indent, "func"|"class"|"block")
+    bdepth = 0
+    stmt = ""                                   # the whole statement, across continuations
+    stmt_ind = 0
+    for i, line in enumerate(code_lines, 1):
+        if not line.strip():
+            continue
+        cont = bdepth > 0
+        if cont:
+            stmt = stmt + " " + line.strip()
+        else:
+            stmt = line.strip()
+            stmt_ind = len(line) - len(line.lstrip("\t"))
+        for ch in line:
+            if ch in "([{":
+                bdepth += 1
+            elif ch in ")]}":
+                bdepth = max(0, bdepth - 1)
+        # a multi-line signature opens its block on its last line, not its first
+        opener = stmt.endswith(":") and bdepth == 0
+        if cont and not opener:
+            continue
+        while blocks and blocks[-1][0] >= stmt_ind:
+            blocks.pop()
+        if stmt_ind > 0:
+            kinds = [k for _, k in blocks]
+            if "func" not in kinds and "class" not in kinds and \
+                    re.match(r"(?:@\w+\s+)?(?:static\s+)?(?:const|var|enum|signal)\s+\w+", stmt):
+                problems.append(f"{path}:{i}: member indented out of class scope: {stmt[:60]}")
+        if opener:
+            kind = "func" if re.match(r"(?:static\s+)?func\s", stmt) else (
+                "class" if stmt.startswith("class ") else "block")
+            blocks.append((stmt_ind, kind))
 
     # -- 4. untyped `:=` inference -------------------------------------------
     rets = declared_return_types(code)

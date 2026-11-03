@@ -1505,6 +1505,19 @@ func late_stop(x) -> float:
 	return d
 
 
+## Who may be cuffed (EA_TASKS B3): someone who has given up, and someone a less-lethal
+## round has put on the floor who is not dead. A wounded suspect is restrained where he
+## lies. Before this, a beanbag knockdown ended the operation with nobody arrested, so the
+## tool's own test measured it as slower than carrying nothing at all (224 s against 208 s
+## to a cuff), because the runs where it worked were scored as failures.
+func cuffable(e) -> bool:
+	if e == null or e.civ or e.judges or e.arrested:
+		return false
+	if e.state == "dead":
+		return false
+	return e.complying or (e.state == "down" and e.ticker.has("down_less"))
+
+
 ## Someone who has given up stays put, kneeling with their hands up (seated once cuffed).
 func _hold_complying(o) -> void:
 	stop(o)
@@ -2205,10 +2218,11 @@ func _finish_action(o) -> void:
 			_less_lethal_done(o, a)
 		"cuff":
 			var e = by_id.get(a.get("tid", ""), null)
-			if e != null and e.alive() and e.complying and not e.arrested:
+			if e != null and cuffable(e):
 				e.arrested = true
 				e.ticker["cuffed_t"] = t
-				e.stance_goal = Op.DUCK
+				if e.state == "ok":
+					e.stance_goal = Op.DUCK
 				say("%s cuffs %s" % [o.id, e.id], "kill")
 				emit({"type": "float", "p": e.pos, "text": "CUFFED"})
 				if incident != null:
@@ -3410,16 +3424,21 @@ func _check_end() -> void:
 	if alive[1] == 0 and alive[0] > 0 and t < time_limit and police_rules():
 		var waiting := false
 		var long_wait := false
+		var downed_wait := false
 		for o2 in ops:
-			if o2.complying and o2.alive() and not o2.arrested:
+			# B3: a suspect a less-lethal round put down is cuffed where he lies, but the
+			# operation waits for it rather than filing with nobody arrested.
+			if cuffable(o2):
 				waiting = true
+				if o2.state == "down":
+					downed_wait = true
 			# hostages still to be walked out (v0.7)
 			if o2.hostage and o2.alive() and o2.cstate in ["hostage", "escorted"]:
 				waiting = true
 				long_wait = true
 		if waiting:
 			if _end_wait < 0.0:
-				_end_wait = t + (150.0 if long_wait else 60.0)
+				_end_wait = t + (150.0 if long_wait else (30.0 if downed_wait else 60.0))
 			if t < _end_wait:
 				return
 	# a side with nothing left to shoot is out of the fight (v0.7.8): the last attacker

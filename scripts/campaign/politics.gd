@@ -31,6 +31,19 @@ const GRANT_AMOUNT := 10000
 const GRANT_STANDING := 60
 const GRANT_COOLDOWN := 8       # weeks between grants
 const GRANT_FAVOUR := 5         # council standing spent asking
+# EA_TASKS P1.D2/D4, declared 2026-11-02: these were referenced by the overdraft, sweep
+# and surplus code but never written down, so the whole politics script failed to parse
+# ("Identifier SURPLUS_COOLDOWN not declared") and every campaign run in CI came back with
+# no record. The numbers are the ones the changelog and politics_test already describe.
+const OVERDRAFT_STANDING_COST := 2   # budget-chair standing a week while the account is below $0
+const FROZEN_STANDING_COST := 5      # and a week while it is below the overdraft limit
+const SWEEP_EVERY := 4               # the committee's quarterly sweep, in weeks
+const SWEEP_FLOOR := 25000           # nothing below this is swept
+const SWEEP_SHARE := 0.5             # half of everything above the floor
+const SWEEP_CAP := 30000             # but never more than this at once
+const SURPLUS_AMOUNT := 5000         # surplus returned to the city by hand (P1.D4)
+const SURPLUS_STANDING := 6          # what the budget chair thinks of it
+const SURPLUS_COOLDOWN := 4          # weeks before it can be done again
 
 const ALLIES := {
 	"council": {"name": "Marguerite Duff", "title": "Councillor, chair of the budget committee", "start": 55,
@@ -120,6 +133,11 @@ func _ally_rec(a: String) -> Dictionary:
 	return al
 
 
+## The name the player knows an ally by ("Tommy Rourke"), for the Ledger and the tests.
+func ally_name(a: String) -> String:
+	return String(ALLIES.get(a, {}).get("name", a))
+
+
 func standing(a: String) -> int:
 	return _int_of(_ally_rec(a).get("standing", 0))
 
@@ -144,7 +162,7 @@ func week_causes(week: int) -> Array:
 	var out: Array = []
 	for e in ally_log:
 		if e is Dictionary and _int_of(e.get("week", -1)) == week:
-			out.append("%s %+d — %s" % [String(ALLIES.get(String(e.get("ally", "")), {}).get("name", String(e.get("ally", "")))),
+			out.append("%s %+d — %s" % [ally_name(String(e.get("ally", ""))),
 				_int_of(e.get("delta", 0)), String(e.get("cause", ""))])
 	for e in poll_log:
 		if e is Dictionary and _int_of(e.get("week", -1)) == week:
@@ -205,8 +223,16 @@ func _trust(ward_i: int, d: int) -> void:
 		trust[ward_i] = clampi(int(trust[ward_i]) + d, 0, 100)
 
 
-func _poll(c: String, d: float) -> void:
+## EA_TASKS P1.F1: a poll move with a named cause is logged (week, candidate, delta,
+## cause) and shown on the Ledger's week page; a move without one is the background drift
+## and stays out of the log. Declared 2026-11-02: ten call sites passed the cause but the
+## function took two arguments, which is a parse error and took the whole script with it.
+func _poll(c: String, d: float, cause := "") -> void:
 	polls[c] = clampf(_float_of(polls.get(c, 0.0)) + d, 3.0, 200.0)
+	if cause != "":
+		poll_log.append({"week": cur_week, "cand": c, "delta": d, "poll": polls[c], "cause": cause})
+		if poll_log.size() > 400:
+			poll_log = poll_log.slice(poll_log.size() - 400)
 
 
 func _headline(week: int, head: String, body: String, kind: String) -> void:
@@ -485,6 +511,13 @@ func on_decision(week: int, c: Dictionary, decision: String, dept) -> Array:
 ## council's quarterly review, and this week's front page. Returns readable lines.
 func week_end(week: int, board: Array, dept) -> Array:
 	var lines: Array = []
+	cur_week = week
+	# EA_TASKS P1.E3: where every ally stood when the week began, so "a quiet week" can
+	# mean the week moved nobody (this snapshot was referenced as `before` but never taken,
+	# which is a parse error: found in CI 2026-11-02, see tools/gd_arity_check.py).
+	var before: Dictionary = {}
+	for a in ALLY_ORDER:
+		before[a] = standing(a)
 	# what nobody went to
 	for s in board:
 		if s["status"] != "unattended" or s.get("truce", false):   # 1.3: a truce is not neglect
@@ -527,7 +560,8 @@ func week_end(week: int, board: Array, dept) -> Array:
 			var insts: Array = p["instalments"]
 			for inst in insts:
 				if inst is Dictionary and not bool(inst.get("paid", false)) and int(inst.get("week", -1)) <= week:
-					dept.spend("Instalment of $%s (lawsuit from week %d)" % [dept.money(int(inst["amount"])), int(p.get("op_week", week))], int(inst["amount"]))
+					dept.spend("Settlement of $%s (instalment %d of %d, lawsuit from week %d)" % [dept.money(int(inst["amount"])),
+						insts.find(inst) + 1, insts.size(), int(p.get("op_week", week))], int(inst["amount"]))
 					_ally("council", -3, dept, lines, "a lawsuit instalment ($%s)" % dept.money(int(inst["amount"])))
 					inst["paid"] = true
 					lines.append("Instalment of the lawsuit from week %d: $%s paid." % [int(p.get("op_week", week)), dept.money(int(inst["amount"]))])
@@ -748,7 +782,12 @@ func ending(dept) -> Dictionary:
 		_n(int(record["settled"]), "lawsuit"), _n(int(record["leaks"]), "case")])
 	## EA_TASKS P1.F3: election night shows the score breakdown.
 	lines.append("FILED. NOT RESOLVED.")
-	lines.append("SCORE BREAKDOWN: Kettering=" + int(result["votes"]["kettering"]) + "%%, Okonjo-Vale=" + int(result["votes"]["okonjo"]) + "%%, Pell=" + int(result["votes"]["pell"]) + "%%")
+	# P1.F3's breakdown is a set of rows in the election screen (ops_ui `_election_night`);
+	# what the ending says in words is the count itself. This used to be a string + int
+	# concatenation ("SCORE BREAKDOWN: Kettering=" + int(...)), which does not parse: it was
+	# the last of the faults that kept the campaign from compiling (CI 2026-11-02).
+	lines.append("The count: Kettering %d%%, Okonjo-Vale %d%%, Pell %d%%." % [
+		int(result["votes"]["kettering"]), int(result["votes"]["okonjo"]), int(result["votes"]["pell"])])
 	return {"winner": win, "keep": keep, "head": head, "lines": lines}
 
 

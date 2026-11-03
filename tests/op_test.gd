@@ -42,7 +42,10 @@ func _init() -> void:
 	var problems_json := ""
 	var j_ops: Array = []
 	var j_ally_lines: Array = []   # LOST / Won back from operations, before the week's snapshot
+	# EA_TASKS P1.G3: wall time per operation, by situation type, so a full run's cost at
+	# default settings can be read off a CI log instead of a stopwatch on someone's desk.
 	var t_wall := Time.get_ticks_msec()
+	var op_ms_by_type := {}
 	for wk in weeks:
 		if c.over():
 			break
@@ -92,6 +95,14 @@ func _init() -> void:
 				hung += 1
 				print("HUNG: %s %s map %02d did not end in %d steps (%.0f s sim)" % [s["id"], s["type"], int(s["map"]), guard, w.t])
 			runs_left -= 1
+			var op_ms := Time.get_ticks_msec() - t0
+			var ty := String(s["type"])
+			var acc2: Dictionary = op_ms_by_type.get(ty, {"n": 0, "ms": 0, "max": 0, "sim": 0.0})
+			acc2["n"] = int(acc2["n"]) + 1
+			acc2["ms"] = int(acc2["ms"]) + op_ms
+			acc2["max"] = maxi(int(acc2["max"]), op_ms)
+			acc2["sim"] = float(acc2["sim"]) + w.t
+			op_ms_by_type[ty] = acc2
 			var res: Dictionary = Outcome.evaluate(s, w)
 			tot_score += int(res.get("score", 0))
 			tot_findings += int(res.get("findings", 0))
@@ -213,6 +224,17 @@ func _init() -> void:
 	print("officer deaths: ", tot_causes)
 	print("officers per operation: %.2f killed, %.2f down (%d operations)" % [float(tot_off_k) / maxf(1, tot_ops), float(tot_off_d) / maxf(1, tot_ops), tot_ops])
 	print("done in %d ms" % (Time.get_ticks_msec() - t_all))
+	# P1.G3: the operation clock, as data. `wall` is the whole engine process, not a
+	# renderer: the same numbers a headless CI run reports on a modest runner.
+	var op_wall_ms := 0
+	var op_wall_max := 0
+	for ty in op_ms_by_type:
+		var a3: Dictionary = op_ms_by_type[ty]
+		op_wall_ms += int(a3["ms"])
+		op_wall_max = maxi(op_wall_max, int(a3["max"]))
+	print("TIMING run wall %d ms, %d operation(s), mean %.0f ms, worst %d ms%s" % [
+		Time.get_ticks_msec() - t_wall, tot_ops, float(op_wall_ms) / maxf(1.0, float(tot_ops)), op_wall_max,
+		"".join(op_ms_by_type.keys().map(func(k): return ", %s %.0f ms/op" % [k, float(op_ms_by_type[k]["ms"]) / maxf(1.0, float(op_ms_by_type[k]["n"]))]))])
 	if args.has("save"):        # 1.1: keep the played campaign (the trailer's election night)
 		c.save()
 		print("saved the campaign to ", Campaign.SAVE_PATH)
@@ -221,6 +243,8 @@ func _init() -> void:
 			"chief": args.get("chief", "all"), "hire": args.has("hire"), "train": args.has("train"),
 			"decide": args.get("decide", "lapse"), "weeks_asked": weeks, "weeks_played": j_weeks.size(),
 			"engine": Engine.get_version_info()["string"], "wall_ms": Time.get_ticks_msec() - t_wall,
+			"timing": {"ops": tot_ops, "op_wall_ms": op_wall_ms, "op_wall_max_ms": op_wall_max,
+				"mean_op_ms": snappedf(float(op_wall_ms) / maxf(1.0, float(tot_ops)), 0.1), "by_type": op_ms_by_type},
 			"ops": tot_ops, "hung": hung, "officers_killed_per_op": snappedf(float(tot_off_k) / maxf(1, tot_ops), 0.01),
 			"officers_down_per_op": snappedf(float(tot_off_d) / maxf(1, tot_ops), 0.01), "mean_op_score": tot_score / maxi(1, tot_ops),
 			"findings": tot_findings, "deficit_weeks": tot_deficit, "death_causes": tot_causes,
@@ -228,8 +252,9 @@ func _init() -> void:
 		if c.over():
 			var e2: Dictionary = c.politics.result["ending"]
 			out["election"] = {"winner": e2["winner"], "kept": bool(e2["keep"]), "votes": c.politics.result["votes"], "head": e2["head"]}
-		if c.run != null:
-			out["run_score"] = Rogue.run_score(c)
+		# P1.H1: the score of the record, whether or not this is a roguelike run, so the
+		# two chiefs can be compared on one number.
+		out["run_score"] = Rogue.run_score(c)
 		var jf := FileAccess.open(String(args["json"]), FileAccess.WRITE)
 		if jf == null:
 			problems_json = "could not write --json to %s" % args["json"]

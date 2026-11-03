@@ -72,6 +72,28 @@ func _run() -> void:
 		_check(c.dept.applicants_now().is_empty(), "the unchosen applicants walk after one hire")
 		_check(main.changes == 1, "the UI propagates one department change")
 
+	# EA_TASKS P1.F3: election night's score breakdown is the arithmetic, not a grey line
+	var sc := {"total": -158, "kept": true, "clean": false,
+		"parts": {"successes": 60, "arrests": 9, "failures": -16, "officers killed": -50,
+			"civilians killed": -80, "civilians hit": -36, "suspects killed": -30,
+			"excessive force": -20, "unattended": -15, "the election": 20},
+		"clean_line": {"officers_killed": 2, "civilians_killed": 2, "findings": 5,
+			"needs": {"officers_killed": 2, "civilians_killed": 6, "findings": 6}}}
+	var rows: Array = OpsUI.score_breakdown(sc)
+	_check(rows.size() == 10, "every scoring part that moved is a row (%d of 10)" % rows.size())
+	_check(rows.all(func(r): return String(r.get("label", "")) != "" and String(r.get("why", "")) != ""),
+		"every row says what it is and why")
+	_check(rows.back()["key"] == "the election" and int(rows.back()["amount"]) == 20,
+		"the election row carries its own amount (+%d)" % int(rows.back()["amount"]))
+	_check(String(rows.back()["why"]).contains("2 of 2") and String(rows.back()["why"]).contains("5 of 6"),
+		"and says which line of the clean-record test was missed: %s" % String(rows.back()["why"]))
+	var zeroed := OpsUI.score_breakdown({"total": 0, "parts": {"successes": 0, "arrests": 0}, "kept": false, "clean_line": {}})
+	_check(zeroed.size() == 1 and int(zeroed[0]["amount"]) == 0, "a run with nothing in it says so in one row")
+	var sum := 0
+	for r in rows:
+		sum += int(r["amount"])
+	_check(sum == int(sc["total"]), "the rows add up to the total (%d)" % sum)
+
 	c.dept.next_week()
 	ui._roster()
 	await process_frame

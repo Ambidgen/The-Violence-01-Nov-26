@@ -1018,11 +1018,13 @@ func _election_night(lines: Array) -> void:
 		var sc: Dictionary = Rogue.run_score(c)
 		var sv := _card(box)
 		_text(sv, "RUN SCORE  ·  %d" % int(sc["total"]), INK, 16)
-		var bits: Array = []
-		for k in sc["parts"]:
-			if int(sc["parts"][k]) != 0:
-				bits.append("%s %+d" % [k, int(sc["parts"][k])])
-		_text(sv, "  ·  ".join(bits), GREY, 10)
+		# EA_TASKS P1.F3: every line says what it is worth and why, so the player can see
+		# which decisions made the number — the arithmetic, not a single grey line.
+		for row in score_breakdown(sc):
+			_text(sv, "%s   %+d   ·  %s" % [String(row["label"]), int(row["amount"]), String(row["why"])],
+				Ink.accent(0.9) if int(row["amount"]) < 0 else INK, 11)
+		_text(sv, "Total  %+d  ·  %s" % [int(sc["total"]), "the office is yours" if bool(sc["kept"]) else "out of office"],
+			INK if bool(sc["kept"]) else Ink.accent(0.9), 12)
 		_text(sv, "Seed %d. Inheritance: %s. Contracts: %d. Programs: %d." % [c.seed_val,
 			String(Rogue.DOCTRINES.get(c.run.doctrine, {}).get("name", "none")), c.run.contracts.size(), c.run.programs_done.size()], GREY, 10)
 	_front_page(box, p, Politics.ELECTION_WEEK)
@@ -1037,6 +1039,50 @@ func _election_night(lines: Array) -> void:
 	_btn(hb3, "Campaign file", func(): _story_file())
 	_btn(hb3, "<  Main menu", func(): main.go_title())
 	_btn(hb3, "New run", func(): main.ops_new_campaign())
+
+
+## EA_TASKS P1.F3: the run score as the lines a player can argue with. Each row carries
+## what it is worth and why, so election night shows the arithmetic beside the ending
+## instead of one grey line of plus and minus.
+const SCORE_ROWS := {
+	"successes": ["Operations that went right", "ten each"],
+	"arrests": ["Arrests made", "three each"],
+	"failures": ["Operations that went wrong", "eight off each"],
+	"officers killed": ["Officers killed", "twenty-five off each"],
+	"civilians killed": ["Civilians killed", "forty off each, thirty for a death in a crowd"],
+	"civilians hit": ["Civilians struck by police", "twelve off each"],
+	"suspects killed": ["Suspects killed", "six off each"],
+	"excessive force": ["Force findings against the department", "ten off each"],
+	"unattended": ["Calls left unattended", "three off each"],
+	"the election": ["Kept the office", ""],
+}
+const SCORE_ORDER := ["successes", "arrests", "failures", "officers killed", "civilians killed",
+	"civilians hit", "suspects killed", "excessive force", "unattended", "the election"]
+
+
+static func score_breakdown(sc: Dictionary) -> Array:
+	var parts: Dictionary = sc.get("parts", {})
+	var rows: Array = []
+	for k in SCORE_ORDER:
+		var amount: int = int(parts.get(k, 0))
+		if amount == 0:
+			continue
+		var spec: Array = SCORE_ROWS[k]
+		rows.append({"key": k, "label": String(spec[0]), "amount": amount,
+			"why": election_reason(sc) if k == "the election" else String(spec[1])})
+	if rows.is_empty():
+		rows.append({"key": "", "label": "Nothing worth counting", "amount": 0, "why": "no operation, no case, no call"})
+	return rows
+
+
+## Why the election paid what it paid (P1.F2): the clean-record test, in words.
+static func election_reason(sc: Dictionary) -> String:
+	var l: Dictionary = sc.get("clean_line", {})
+	var needs: Dictionary = l.get("needs", {})
+	return "clean record: %d of %d officers killed, %d of %d civilians, %d of %d findings" % [
+		int(l.get("officers_killed", 0)), int(needs.get("officers_killed", 2)),
+		int(l.get("civilians_killed", 0)), int(needs.get("civilians_killed", 6)),
+		int(l.get("findings", 0)), int(needs.get("findings", 6))]
 
 
 ## The money, morale and open cases at a glance (v0.8.5).
@@ -1064,7 +1110,7 @@ func _roster_strip(parent: Control, c) -> void:
 func _dept_strip(parent: Control) -> void:
 	var d = main.campaign.dept
 	var v := _card(parent)
-	var red: bool = d.balance < 0
+	var red: bool = d.frozen()   # P1.D2: the freeze is the overdraft limit, not zero
 	_text(
 		v,
 		(
@@ -3031,6 +3077,13 @@ func show_run() -> void:
 		b.set_pressed_no_signal(is_equal_approx(sp, main.speed))
 	var pacing := _text(box, "", GREY, 10)
 	_run_refs["pacing"] = pacing
+	# EA_TASKS P1.G2: offered once the operation has been quiet for a minute of its own
+	# clock. The simulation still runs to the end; only the watching is skipped.
+	if main.has_method("can_skip_report"):
+		var sk := _btn(box, "Skip to the report", func(): main.skip_to_report())
+		sk.custom_minimum_size = Vector2(0, 30)
+		sk.disabled = true
+		_run_refs["skip"] = sk
 	_text(box, "REWIND (a way of looking: the operation itself never goes back)", GREY, 10)
 	var hr := _h(box)
 	var sl := HSlider.new()
@@ -3108,6 +3161,12 @@ func refresh_run(w, fog) -> void:
 	)
 	_run_refs["pacing"].text = main.adaptive_status()
 	_run_refs["pause"].set_pressed_no_signal(main.paused)
+	if _run_refs.has("skip") and main.has_method("can_skip_report"):
+		var skip_btn: Button = _run_refs["skip"]
+		var quiet: float = main.quiet_seconds() if main.has_method("quiet_seconds") else 0.0
+		var ready: bool = main.can_skip_report()
+		skip_btn.disabled = not ready
+		skip_btn.text = Ink.bb("Skip to the report") if ready else "Skip to the report  ·  %d s of quiet of %d" % [int(quiet), int(main.quiet_skip_after())]
 	var sl: HSlider = _run_refs["slider"]
 	_sliding = true
 	sl.max_value = maxf(1.0, w.t)

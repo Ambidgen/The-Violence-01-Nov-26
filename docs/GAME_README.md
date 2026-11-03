@@ -137,6 +137,7 @@ binary, so it runs in CI or in a sandbox with no engine:
 ```sh
 python3 tools/gd47_check.py            # scripts/, tests/, tools/
 python3 tools/gd47_check.py scripts/   # or one subtree
+python3 tools/gd_arity_check.py        # names and call arity; both checks, no engine
 ```
 
 It checks bracket balance (with strings and comments stripped), duplicate class
@@ -144,6 +145,13 @@ members, tab-only indentation, `:=` inference from an untyped receiver — the
 construct 4.7 rejects — the GDScript-breaking APIs from 4.4 to 4.7, and
 statements that escaped into class scope. It is a linter, not a parser: confirm
 anything it reports with `tests/_check.gd`.
+
+`tools/gd_arity_check.py` checks the things a parser cannot: a call with more arguments
+than the function takes (in this file, or on a `const X = preload("...")` alias), a
+SCREAMING_CASE name used but never declared (in this file, its `extends` chain, a preload,
+or Godot's globals), and a `+` between a string literal and a number. All three parse and
+all three fail the moment the engine loads the script — which is how `politics.gd` came to
+be unloadable for a whole cycle on 2026-11-02 while every static check was green.
 
 Some harnesses accept additional options documented in their script headers. Headless execution validates logic and scene automation; it is not a substitute for visual or manual playtesting.
 

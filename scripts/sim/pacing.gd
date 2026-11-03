@@ -38,5 +38,28 @@ static func hold_seconds(reason: String) -> float:
 	return 6.0 if reason == "casualty" else 4.0
 
 
+## EA_TASKS P1.G1: the default is contact-aware fast-forward, both ways. Away from
+## anything that matters the presentation runs QUIET_MULT times the speed the player asked
+## for (capped at QUIET_CAP); for a few seconds after shots, a casualty or important radio
+## it drops to 1x so the moment can be read. A player who asks for 1x keeps 1x: that is a
+## deliberate choice, not a quiet stretch. Presentation only — the simulation, the RNG and
+## the clock never see this number.
+const QUIET_MULT := 3.0
+const QUIET_CAP := 8.0
+
+## EA_TASKS P1.G2: after a minute of its own clock with nothing the policy calls contact,
+## the operation may be run out to its end and the report opened (the simulation still
+## steps; only the watching is skipped).
+const QUIET_SKIP_AFTER := 60.0
+
+
+static func quiet_enough(quiet_s: float) -> bool:
+	return quiet_s >= QUIET_SKIP_AFTER
+
+
 static func speed_for(requested: float, now: float, slow_until: float, enabled: bool) -> float:
-	return minf(requested, 1.0) if enabled and now < slow_until else requested
+	if not enabled or requested <= 1.0:
+		return requested
+	if now < slow_until:
+		return 1.0
+	return minf(requested * QUIET_MULT, maxf(requested, QUIET_CAP))

@@ -13,6 +13,7 @@ const Campaign = preload("res://scripts/campaign/campaign.gd")
 const Situations = preload("res://scripts/campaign/situations.gd")
 const Autoplan = preload("res://scripts/campaign/autoplan.gd")
 const Equipment = preload("res://scripts/data/equipment.gd")
+const Department = preload("res://scripts/campaign/department.gd")
 const Maps = preload("res://scripts/maps/registry.gd")
 
 var failures := 0
@@ -105,10 +106,12 @@ func _init() -> void:
 	c4.start(1001)
 	var s4 := _gang(c4, 7039)
 	_suggest(c4, s4)
-	c4.dept.balance = -100
+	# P1.D2: the freeze is the overdraft limit, not zero — at -$100 the kit may be issued
+	# into the overdraft, so the frozen case is one dollar past the limit
+	c4.dept.balance = Department.OVERDRAFT_LIMIT - 1
 	var k4 := JSON.stringify(c4.dept.officers.map(func(r): return r["kit"]))
 	var l4: Array = c4.issue_plan_kit(s4)
-	check(JSON.stringify(c4.dept.officers.map(func(r): return r["kit"])) == k4 and c4.dept.balance == -100
+	check(JSON.stringify(c4.dept.officers.map(func(r): return r["kit"])) == k4 and c4.dept.balance == Department.OVERDRAFT_LIMIT - 1
 		and l4.any(func(l): return String(l).contains("not issued")), "a frozen account issues nothing and says so: %s" % str(l4))
 
 	print("kit_proposal_test: %d failure%s" % [failures, "" if failures == 1 else "s"])

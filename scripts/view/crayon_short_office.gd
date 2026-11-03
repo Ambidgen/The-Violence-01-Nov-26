@@ -286,42 +286,6 @@ func _staging() -> void:
 	C.tape(self, Vector2(427, 438), Vector2(1069, 438), 510, 11.0)
 
 
-func _draw_van(c: Vector2, sc: float, seed: int) -> void:
-	var r := Rect2(c - Vector2(89, 39) * sc, Vector2(178, 78) * sc)
-	C.hatch_rect(self, r, _alpha(C.SLATE_LIGHT, _reveal(1.0, 0.5)), 3.7, -0.6, seed, 2.4)
-	C.outline(self, C.rect_poly(r), DARK, 3.0, seed + 1)
-	for side in [-1.0, 1.0]:
-		C.hatch(
-			self,
-			C.ellipse_poly(
-				c + Vector2(side * 52 * sc, 36 * sc), 19 * sc, 14 * sc, 14, seed + 2, 0.12
-			),
-			DARK,
-			4.0,
-			0.3,
-			seed + 3,
-			2.0
-		)
-	C.hatch(
-		self,
-		C.ellipse_poly(c + Vector2(-10 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 4),
-		RED,
-		3.4,
-		0.1,
-		seed + 5,
-		3.0
-	)
-	C.hatch(
-		self,
-		C.ellipse_poly(c + Vector2(20 * sc, -43 * sc), 20 * sc, 9 * sc, 12, seed + 6),
-		BLUE,
-		3.4,
-		-0.4,
-		seed + 7,
-		3.0
-	)
-
-
 func _threshold() -> void:
 	_heading("FIRST ROOM · RECOGNITION TAKES A MOMENT", "THE THRESHOLD", 520)
 	var room := Rect2(236, 236, 1110, 492)
@@ -353,7 +317,7 @@ func _threshold() -> void:
 		_person(Vector2(934, 592), 1.45, UMBER, 570)
 		C.scribble_ring(self, Vector2(934, 515), 48, 58, RED, 571, _reveal(3.3, 0.45), 3.0)
 	else:
-		C.line(self, Vector2(780, 601), Vector2(1010, 601), MOSS, 5.0, 572, 1.2)
+		C.line(self, Vector2(780, 601), Vector2(1010, 601), C.MOSS, 5.0, 572, 1.2)
 	# Recognition bar fills then holds; contact and clear resolve to different word marks.
 	var bar := Rect2(420, 750, 760, 28)
 	_box(bar, 580, _reveal(1.0, 0.35))
