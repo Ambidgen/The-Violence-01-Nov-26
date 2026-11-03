@@ -3,6 +3,31 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — the map is the campaign (2026-11-03)
+
+The right-hand side menu is gone. The campaign is played on the city map, and every choice
+comes up as a card on top of it.
+
+- **Calls open from their pins.** Click a red pin for that call's card (site, ward, threat,
+  who is free) and *Brief and plan* from there; the card steps to the next call.
+- **Landmarks are the department's doors**, drawn on the map at their canonical buildings:
+  **Police HQ** (Carrick Street Station) opens roster, budget, internal affairs, armoury
+  and programs, and the campaign file; **City Hall** opens the politics; **the Ledger**
+  opens the week.
+- **The week** (desk, results, story, front page, a list of the calls) opens by itself
+  when a week starts or something comes back, and again from the Ledger or the HUD.
+- **A crayon HUD** (top right): week, account (red when frozen), End week (disabled with
+  its reason while the desk is unsettled), The week, Menu.
+- **Operations have no side panel either.** The floor plan fills the screen. A bar along
+  the bottom carries *Map*, the three steps (Briefing, Force, Orders), *Suggest* and *RUN*;
+  each step opens as a popup above the bar, at most about half the window, and pressing
+  the step again folds it away. The live run's controls (pause, speed, rewind, skip,
+  abort) are the same bar, the radio and squads a popup; the debrief is a popup with
+  *Back to the map* in the bar.
+- **Every card** can be dragged by its title bar, folded to the bar (– or double-click)
+  and closed (×, a step back). It sizes to its content and remembers where you put it.
+- `ui_walk` now clicks pins and landmarks through the map's own hit test.
+
 ## Unreleased — one look, all the way through (2026-11-03)
 
 The game had three visual languages: the bright child's crayon of the opening scenes, the

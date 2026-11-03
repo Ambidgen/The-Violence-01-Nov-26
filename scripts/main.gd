@@ -1496,7 +1496,7 @@ func _director(delta: float) -> void:
 		_cam_goal = goal
 	_cam_goal = _cam_goal.lerp(goal, 1.0 - exp(-delta * 1.6))
 	cam.zoom = Vector2(zf, zf)
-	var off := Vector2.ZERO if _args.has("clean") else Vector2(UI.PANEL_W / 2.0 / zf, 0)
+	var off := Vector2.ZERO if _args.has("clean") else Vector2(_side_w() / 2.0 / zf, 0)
 	cam.position = _cam_goal + off
 
 
@@ -1685,7 +1685,8 @@ func _fit_camera() -> void:
 		return
 	if level == null:
 		return
-	var avail := Vector2(vs.x - UI.PANEL_W, vs.y)
+	# Campaign UI 2026-11-03: an operation has no side panel, only a bar along the bottom
+	var avail := Vector2(vs.x - _side_w(), vs.y - (OPS_BAR_H if _side_w() == 0.0 else 0.0))
 	var map_px := Vector2(level.W * PX + 140, level.H * PX + 316)
 	if map_px.x < 1.0 or map_px.y < 1.0:
 		return
@@ -1696,7 +1697,16 @@ func _fit_camera() -> void:
 		return
 	cam.zoom = Vector2(z, z)
 	var centre := Vector2(level.W * PX / 2.0, (level.H * PX + 156.0) / 2.0)
-	cam.position = centre + Vector2(UI.PANEL_W / 2.0 / z, 0)
+	cam.position = centre + Vector2(_side_w() / 2.0 / z, OPS_BAR_H / 2.0 / z if _side_w() == 0.0 else 0.0)
+
+
+## The width the camera leaves free on the right: the skirmish panel's, or nothing for a
+## campaign operation (its cards float and its controls are a bar along the bottom).
+const OPS_BAR_H := 70.0
+
+
+func _side_w() -> float:
+	return 0.0 if ops_ui != null and ops_ui.root != null and ops_ui.root.visible else UI.PANEL_W
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1705,7 +1715,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			# 1.3 playtest: scrolling the side panel past its end used to zoom the map too
 			var vp_w: float = get_viewport().get_visible_rect().size.x
-			if (ops_ui.root.visible or ui.root.visible) and get_viewport().get_mouse_position().x > vp_w - UI.PANEL_W:
+			if ops_ui.over_ui(get_viewport().get_mouse_position()) or (ui.root.visible and get_viewport().get_mouse_position().x > vp_w - UI.PANEL_W):
 				return
 			if mb.pressed:
 				var f := 1.12 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.12

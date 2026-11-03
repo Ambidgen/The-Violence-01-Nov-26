@@ -21,13 +21,27 @@ const Settings = preload("res://scripts/ui/settings.gd")
 const Risk = preload("res://scripts/campaign/risk.gd")
 const Rogue = preload("res://scripts/campaign/rogue.gd")
 const CityMap = preload("res://scripts/ui/city_map.gd")
+const FloatCard = preload("res://scripts/ui/float_card.gd")
 const PANEL_W := 460.0
 const INK := Color("#141313")
 const GREY := Color("#5b5866")
 const OBJ_KINDS := ["clear", "arrest", "rescue", "contain", "post", "patrol"]
 
 var main
-var root: PanelContainer
+var root: Control
+var card          # the floating card every screen is drawn into (float_card.gd)
+var hud: PanelContainer
+var hud_week: Label
+var hud_money: Label
+var hud_end: Button
+var run_bar: PanelContainer
+var run_row: HBoxContainer
+var _titled := false
+var _confirm_op := false
+var _confirm_back: Callable
+var _card_pos := {}
+var _week_lines: Array = []
+var _week_seen := -1   # the week whose brief has been opened automatically
 var city_map
 var _scroll: ScrollContainer
 var box: VBoxContainer
@@ -52,23 +66,41 @@ func build(m) -> void:
 	main = m
 	city_map = CityMap.new()
 	city_map.set_anchors_preset(Control.PRESET_FULL_RECT)
-	city_map.offset_right = -PANEL_W
 	city_map.mouse_filter = Control.MOUSE_FILTER_STOP
 	city_map.visible = false
+	city_map.pin_pressed.connect(func(i): open_call(i))
+	city_map.landmark_pressed.connect(func(id): open_landmark(id))
 	add_child(city_map)
-	root = PanelContainer.new()
+	# Campaign UI 2026-11-03: no side panel. `root` is a transparent layer over the map
+	# or the floor plan; every screen is drawn into one floating card on it, and the HUD
+	# and the run bar sit on it beside the card.
+	root = Control.new()
 	root.theme = UI.make_theme()
-	root.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	root.offset_left = -PANEL_W
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.visible = false
 	add_child(root)
-	_scroll = ScrollContainer.new()
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(_scroll)
 	box = VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 6)
-	_scroll.add_child(box)
+	card = FloatCard.new()
+	card.setup(box)
+	card.visible = false
+	card.close_pressed.connect(_close_card)
+	root.add_child(card)
+	_scroll = card.scroll
+	_build_hud()
+	run_bar = PanelContainer.new()
+	run_bar.add_theme_stylebox_override("panel", UI._sb(Color("#fbf7ec"), INK, 2, 8.0))
+	run_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	run_bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	run_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	run_bar.offset_bottom = -16
+	run_bar.visible = false
+	root.add_child(run_bar)
+	run_row = HBoxContainer.new()
+	run_row.add_theme_constant_override("separation", 6)
+	run_bar.add_child(run_row)
 
 
 func hide_all() -> void:
@@ -79,18 +111,151 @@ func hide_all() -> void:
 
 func _clear() -> void:
 	city_map.visible = false
+	city_map.selected = -1
 	for c in box.get_children():
 		c.queue_free()
-	_scroll.scroll_horizontal = 0
-	_scroll.scroll_vertical = 0
+	for c in run_row.get_children():
+		c.queue_free()
+	run_bar.visible = false
+	hud.visible = false
+	_titled = false
+	card.visible = true
+	card.set_closable(true)
+	card.set_title("")
+	card.reset_scroll()
 	_run_refs.clear()
+	_place_card()
+
+
+# ------------------------------------------------------------------ the floating card
+## Where the card opens: over the map it opens on the right, under the HUD;
+## over the floor plan it opens on the right, where the camera leaves room for it.
+## Once the player has dragged it, it stays where they put it for that kind of screen.
+func _slot() -> String:
+	return "op" if mode in ["plan", "run", "debrief"] or (mode == "confirm" and _confirm_op) else "map"
+
+
+func _place_card() -> void:
+	var slot := _slot()
+	if card.get_meta("slot", "") == slot:
+		return
+	if card.get_meta("slot", "") != "":
+		if card.has_meta("moved"):
+			_card_pos[card.get_meta("slot")] = card.position
+	card.set_meta("slot", slot)
+	if card.has_meta("moved"):
+		card.remove_meta("moved")
+	var vp := root.get_viewport_rect().size if root.is_inside_tree() else Vector2(1600, 900)
+	card.set_width(PANEL_W)
+	if slot == "op":
+		# bottom left, above the operation's bar, never more than about half the window:
+		# the floor plan stays the screen
+		card.min_top = 16.0
+		card.max_frac = 0.56
+		card.bottom_gap = 96.0
+		card.position = Vector2(16.0, vp.y * 0.4)
+	else:
+		# a popup in the middle of the map, under the HUD
+		card.min_top = 84.0
+		card.max_frac = 0.72
+		card.bottom_gap = -1.0
+		card.position = Vector2(maxf(16.0, (vp.x - PANEL_W) * 0.5), 96.0)
+	if _card_pos.has(slot):
+		card.position = _card_pos[slot]
+		card.set_meta("moved", true)
+	card.set_collapsed(false)
+
+
+## The card's ×: a step back to the map, or out of the operation to the board.
+func _close_card() -> void:
+	match mode:
+		"plan", "debrief":
+			main.ops_board()
+		"run":
+			card.set_collapsed(true)
+		"confirm":
+			_confirm_back.call()
+		_:
+			if main.campaign != null and main.campaign.over():
+				card.visible = false
+			else:
+				show_map()
+
+
+## True when the mouse is over a card, the HUD or the run bar (the wheel scrolls the
+## card there, it does not zoom the floor plan).
+func over_ui(p: Vector2) -> bool:
+	if not root.visible:
+		return false
+	for c in [card, hud, run_bar]:
+		if c != null and c.visible and c.get_global_rect().has_point(p):
+			return true
+	return false
+
+
+# ------------------------------------------------------------------ the HUD
+func _build_hud() -> void:
+	hud = PanelContainer.new()
+	hud.add_theme_stylebox_override("panel", UI._sb(Color("#fbf7ec"), INK, 2, 8.0))
+	hud.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	hud.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	hud.offset_right = -16
+	hud.offset_top = 16
+	hud.visible = false
+	root.add_child(hud)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	hud.add_child(h)
+	hud_week = Label.new()
+	hud_week.add_theme_font_size_override("font_size", 18)
+	h.add_child(hud_week)
+	hud_money = Label.new()
+	hud_money.add_theme_font_size_override("font_size", 16)
+	h.add_child(hud_money)
+	hud_end = Button.new()
+	hud_end.focus_mode = Control.FOCUS_NONE
+	hud_end.pressed.connect(func(): _end_week())
+	h.add_child(hud_end)
+	var wk := Button.new()
+	wk.text = "The week"
+	wk.tooltip_text = "This week's desk, results and front page (also the Ledger on the map)"
+	wk.focus_mode = Control.FOCUS_NONE
+	wk.pressed.connect(func(): open_week())
+	h.add_child(wk)
+	var mn := Button.new()
+	mn.text = "Menu"
+	mn.tooltip_text = "Back to the main menu (the campaign is saved)"
+	mn.focus_mode = Control.FOCUS_NONE
+	mn.pressed.connect(func(): main.go_title())
+	h.add_child(mn)
+
+
+func _refresh_hud() -> void:
+	var c = main.campaign
+	if c == null:
+		hud.visible = false
+		return
+	hud.visible = true
+	var d = c.dept
+	hud_week.text = "WEEK %d / %d" % [mini(c.week(), c.WEEKS), c.WEEKS]
+	hud_money.text = "$%s%s" % [Department.money(d.balance), "  FROZEN" if d.frozen() else ""]
+	hud_money.add_theme_color_override("font_color", Ink.accent(0.9) if d.frozen() else INK)
+	var block: Array = c.run.blocking() if c.run != null else []
+	hud_end.text = "End week %d  >" % c.week()
+	hud_end.visible = not c.over()
+	hud_end.disabled = not block.is_empty()
+	hud_end.tooltip_text = ("Settle the desk first: %s." % ", ".join(block)) if not block.is_empty() else "Close the week: pay, heal, train, and let the city answer"
 
 
 ## EA_TASKS P1.D1: a confirm dialog for any hire, course or contract that pushes the
 ## four-week forecast into the red. back() rebuilds the screen the choice was on.
 func _confirm(title: String, body: String, on_yes: Callable, back: Callable) -> void:
+	_confirm_op = mode in ["plan", "run", "debrief"] or (mode == "confirm" and _confirm_op)
+	_confirm_back = back
 	mode = "confirm"
 	_clear()
+	if not _confirm_op:
+		_city_backdrop()
 	_title(title, 16)
 	_text(box, body, INK, 12)
 	_btn(box, "Yes — commit", func(): on_yes.call())
@@ -100,6 +265,10 @@ func _confirm(title: String, body: String, on_yes: Callable, back: Callable) -> 
 # ------------------------------------------------------------------ widgets
 func _title(text: String, size := 18) -> Label:
 	var l := Label.new()
+	if not _titled:
+		_titled = true
+		card.set_title(Ink.bb(text))
+		l.visible = false
 	l.text = Ink.bb(text)
 	l.add_theme_font_size_override("font_size", size)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -196,23 +365,57 @@ func _city_backdrop() -> void:
 	if c == null:
 		return
 	city_map.show_city(c.board, c.politics.trust, c.week())
+	_refresh_hud()
 
 
 func show_board(lines := []) -> void:
 	if mode == "debrief":
 		guide_active = false
-	mode = "board"
-	root.visible = true
-	_clear()
 	var c = main.campaign
 	var d = c.dept
 	if c.week() == 1 and int(d.ops_run) == 0 and bool(Settings.get_v("tips")) and not guide_dismissed:
 		guide_active = true
 	if c.over():
+		mode = "board"
+		root.visible = true
+		_clear()
 		_election_night(lines)
 		return
-	city_map.show_city(c.board, c.politics.trust, c.week())
-	_title("THE CAMPAIGN FILE  ·  week %d of %d" % [c.week(), c.WEEKS])
+	_week_lines = lines.duplicate()
+	var block: Array = c.run.blocking() if c.run != null else []
+	if not lines.is_empty() or _week_seen != c.week() or not block.is_empty():
+		_week_seen = c.week()
+		open_week()
+	else:
+		show_map()
+
+
+## Campaign UI 2026-11-03: the board is the city. Nothing but the map and the HUD; a
+## call opens from its pin, the department from the station, politics from City Hall.
+func show_map() -> void:
+	mode = "board"
+	root.visible = true
+	_clear()
+	card.visible = false
+	_city_backdrop()
+	_refresh_hud()
+
+
+## The week: the desk, last week's results, the story and the Ledger's front page.
+## Opens by itself when a week starts or something comes back; the HUD and the Ledger
+## on the map open it again.
+func open_week() -> void:
+	mode = "board"
+	root.visible = true
+	_clear()
+	_city_backdrop()
+	_refresh_hud()
+	var c = main.campaign
+	var d = c.dept
+	if c.over():
+		_election_night(_week_lines)
+		return
+	_title("THE WEEK  ·  %d of %d" % [c.week(), c.WEEKS])
 	var fit: int = d.available().size()
 	var out: int = d.officers.filter(func(r): return r["status"] == "injured").size()
 	var busy: int = c.committed().size()
@@ -225,100 +428,166 @@ func show_board(lines := []) -> void:
 		GREY,
 		11
 	)
-	_roster_strip(box, c)
-	_dept_strip(box)
+	for ln in _week_lines:
+		_text(box, String(ln), INK, 11)
 	if c.run != null:
 		_desk_card(box)
 	_story_card(box, Story.current(c))
 	if bool(Settings.get_v("tips")) and c.week() <= 2:
 		_first_weeks(box)
 	_front_page(box, c.politics, c.week() - 1 if c.week() > 1 else 1)
-	for ln in lines:
-		_text(box, String(ln), INK, 11)
+	_calls_list(box)
+	_text(box, "Click a red pin on the map to open a call. The station opens the department; City Hall the politics.", GREY, 10)
+	_text(box, "One campaign is kept. The file is saved after each operation and each week.", GREY, 10)
+
+
+## The calls in one line each, so the week can be read without hunting the map.
+func _calls_list(parent: Control) -> void:
+	var c = main.campaign
+	var v := _card(parent)
+	_text(v, "THIS WEEK'S CALLS", INK, 12)
 	for i in c.board.size():
 		var s: Dictionary = c.board[i]
-		var v := _card(box)
-		var t := Label.new()
-		t.text = "%d  ·  %s" % [i + 1, s["title"]]
-		t.add_theme_font_size_override("font_size", 14)
-		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		v.add_child(t)
-		if s.has("site_name"):
-			_text(v, "%s  ·  %s" % [s["site_name"], s["address"]], GREY, 11)
-		elif s.get("city_error", false):
-			_text(v, "City data unavailable: this call has no mapped location.", GREY, 11)
-		_text(
-			v,
-			(
-				"%s  ·  %s  ·  visibility %s  ·  pressure: %s"
+		var h := _h(v)
+		var t := _text(h, "%d  ·  %s  ·  %s" % [i + 1, s["title"], _call_status(s)], INK if s["status"] == "open" else GREY, 11)
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var k: int = i
+		_btn(h, "Open  >", func(): open_call(k))
+
+
+func _call_status(s: Dictionary) -> String:
+	var c = main.campaign
+	var status_key: String = "truce" if s.get("truce", false) else String(s["status"])
+	match status_key:
+		"truce":
+			return "Truce: the crews are keeping it, and so are you."
+		"open":
+			var n: int = c.plan_members(s).size()
+			var st := (
+				"Open: %s"
+				% (
+					("planned, %d officer%s" % [n, "" if n == 1 else "s"])
+					if n > 0
+					else "nobody assigned yet"
+				)
+			)
+			if not s.get("canvass", []).is_empty():
+				st += ", %d canvassing" % s["canvass"].size()
+			return st
+		"done":
+			var r: Dictionary = s.get("result", {})
+			var g0: String = r.get("goal", "")
+			return (
+				"Done: %s, %d. %s."
 				% [
-					Situations.TYPES[s["type"]]["name"],
-					_ward_label(s),
-					dots(int(s["visibility"])),
-					String(s["pressure"])
+					r.get("label", "?"),
+					int(r.get("score", 0)),
+					g0.substr(0, 1).to_upper() + g0.substr(1)
 				]
-			),
-			GREY,
-			11
-		)
-		var st := ""
-		var status_key: String = "truce" if s.get("truce", false) else String(s["status"])
-		match status_key:
-			"truce":
-				st = "Truce: the crews are keeping it, and so are you."
-			"open":
-				var n: int = c.plan_members(s).size()
-				st = (
-					"Open: %s"
-					% (
-						("planned, %d officer%s" % [n, "" if n == 1 else "s"])
-						if n > 0
-						else "nobody assigned yet"
-					)
-				)
-				if not s.get("canvass", []).is_empty():
-					st += ", %d canvassing" % s["canvass"].size()
-			"done":
-				var r: Dictionary = s.get("result", {})
-				var g0: String = r.get("goal", "")
-				st = (
-					"Done: %s, %d. %s."
-					% [
-						r.get("label", "?"),
-						int(r.get("score", 0)),
-						g0.substr(0, 1).to_upper() + g0.substr(1)
-					]
-				)
-			_:
-				st = "Unattended"
-		_text(v, st, INK, 12)
-		if s["status"] == "open":
-			var h := _h(v)
-			var sid: String = s["id"]
-			var bp := _btn(h, "Brief and plan  >", func(): main.ops_select(sid))
-			if c.run != null and c.run.drafts.any(func(dr): return dr["kind"] == "doctrine"):
-				bp.disabled = true
-				bp.tooltip_text = "Choose your inheritance on the desk first."
-	_sep()
-	var hb := _h(box)
-	var block: Array = c.run.blocking() if c.run != null else []
-	var ew := _btn(hb, "End week %d" % c.week(), func(): _end_week())
-	if not block.is_empty():
-		ew.disabled = true
-		ew.tooltip_text = "Settle the desk first: %s." % ", ".join(block)
-	_btn(hb, "City Hall", func(): _city_hall())
-	_btn(hb, "Roster", func(): _roster())
-	_btn(hb, "Budget", func(): _budget())
-	var nc: int = d.open_cases().size()
-	_btn(hb, "Internal affairs%s" % ((" (%d)" % nc) if nc > 0 else ""), func(): _cases())
-	var hb2 := _h(box)
-	if c.run != null:
-		_btn(hb2, "Armoury and programs", func(): _armory())
-	_btn(hb2, "Campaign file", func(): _story_file())
-	_btn(hb2, "<  Main menu", func(): main.go_title())
+			)
+	return "Unattended"
+
+
+## A call, opened from its pin.
+func open_call(i: int) -> void:
+	var c = main.campaign
+	if c == null or i < 0 or i >= c.board.size():
+		return
+	mode = "board"
+	root.visible = true
+	_clear()
+	_city_backdrop()
+	_refresh_hud()
+	city_map.selected = i
+	# the call's card opens beside its pin, on whichever side has room
+	if not card.has_meta("moved"):
+		var at: Vector2 = city_map.pin_pos(i)
+		if at.x >= 0.0:
+			var vp := root.get_viewport_rect().size
+			var x := at.x + 40.0 if at.x + 40.0 + PANEL_W < vp.x - 16.0 else at.x - 40.0 - PANEL_W
+			card.position = Vector2(x, clampf(at.y - 60.0, 96.0, maxf(96.0, vp.y - 420.0)))
+	var s: Dictionary = c.board[i]
+	_title("%d  ·  %s" % [i + 1, s["title"]])
+	var v := box
+	if s.has("site_name"):
+		_text(v, "%s  ·  %s" % [s["site_name"], s["address"]], GREY, 11)
+	elif s.get("city_error", false):
+		_text(v, "City data unavailable: this call has no mapped location.", GREY, 11)
 	_text(
-		box, "One campaign is kept. The file is saved after each operation and each week.", GREY, 10
+		v,
+		(
+			"%s  ·  %s  ·  visibility %s  ·  pressure: %s"
+			% [
+				Situations.TYPES[s["type"]]["name"],
+				_ward_label(s),
+				dots(int(s["visibility"])),
+				String(s["pressure"])
+			]
+		),
+		GREY,
+		11
 	)
+	_text(v, _call_status(s), INK, 12)
+	_text(v, String(Situations.TYPES[s["type"]].get("blurb", "")), INK, 11)
+	_roster_strip(box, c)
+	if s["status"] == "open":
+		var sid: String = s["id"]
+		var bp := _btn(box, "Brief and plan  >", func(): main.ops_select(sid))
+		bp.custom_minimum_size = Vector2(0, 38)
+		bp.add_theme_font_size_override("font_size", 16)
+		if c.run != null and c.run.drafts.any(func(dr): return dr["kind"] == "doctrine"):
+			bp.disabled = true
+			bp.tooltip_text = "Choose your inheritance on the desk first."
+	var h := _h(box)
+	if i > 0:
+		_btn(h, "<  Call %d" % i, func(): open_call(i - 1))
+	if i < c.board.size() - 1:
+		_btn(h, "Call %d  >" % (i + 2), func(): open_call(i + 1))
+
+
+## The landmarks on the map. Police HQ is the department, City Hall the politics, the
+## Ledger the week's paper.
+func open_landmark(id: String) -> void:
+	match id:
+		"police-hq":
+			open_hq()
+		"city-hall":
+			_city_hall()
+		"ledger":
+			open_week()
+
+
+## Carrick Street Station: the department's doors.
+func open_hq() -> void:
+	mode = "board"
+	root.visible = true
+	_clear()
+	_city_backdrop()
+	_refresh_hud()
+	var c = main.campaign
+	var d = c.dept
+	_title("CARRICK STREET STATION  ·  POLICE HQ")
+	_dept_strip(box)
+	_roster_strip(box, c)
+	var g := GridContainer.new()
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 6)
+	g.add_theme_constant_override("v_separation", 6)
+	box.add_child(g)
+	var nc: int = d.open_cases().size()
+	var doors := [
+		["Roster", "Officers, courses, hiring and dismissals", func(): _roster()],
+		["Budget", "Account, allocation, payroll and grants", func(): _budget()],
+		["Internal affairs%s" % ((" (%d)" % nc) if nc > 0 else ""), "Complaints, reviews and discipline", func(): _cases()],
+	]
+	if c.run != null:
+		doors.append(["Armoury and programs", "Contracts, kit and the training program", func(): _armory()])
+	doors.append(["Campaign file", "The story so far, people and documents", func(): _story_file()])
+	for dd in doors:
+		var b := _btn(g, String(dd[0]), dd[2])
+		b.tooltip_text = String(dd[1])
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 40)
 
 
 # ================================================================== the desk (1.3, the run layer)
@@ -1011,6 +1280,8 @@ func _election_night(lines: Array) -> void:
 	var c = main.campaign
 	var p = c.politics
 	var e: Dictionary = p.result.get("ending", {})
+	mode = "board"
+	_city_backdrop()
 	_title("ELECTION NIGHT  ·  THE CAMPAIGN IS FILED")
 	_story_card(box, Story.current(c))
 	var votes: Dictionary = p.result.get("votes", {})
@@ -2026,7 +2297,7 @@ func _guide() -> void:
 	var copy := [
 		"Read what is known and what is only estimated. The readiness range is a planning index, not a win chance. When you have the briefing, continue to Force.",
 		"Assign officers to squads and check their kit. Suggest a plan is a starting point, not an order. Continue to Orders when the force is ready.",
-		"Give each squad an objective and any constraints its leader can afford. Check the readiness range again, then choose RUN below. The operation itself cannot be rewound.",
+		"Give each squad an objective and any constraints its leader can afford. Check the readiness range again, then choose RUN in the bar along the bottom. The operation itself cannot be rewound.",
 	]
 	_text(v, copy[clampi(tab, 0, 2)], INK, 11)
 	var h := _h(v)
@@ -2061,23 +2332,22 @@ func _risk_card(s: Dictionary, full := true) -> void:
 
 
 func show_plan() -> void:
+	var entering: bool = mode != "plan"
 	mode = "plan"
 	root.visible = true
+	var was_folded: bool = card.collapsed and not entering
 	_clear()
+	if entering and main.has_method("_fit_camera"):
+		main._fit_camera.call_deferred()
 	var s: Dictionary = main.cur_sit
 	_title(s["title"], 15)
 	if main.campaign.week() == 1 and int(main.campaign.dept.ops_run) == 0 and bool(Settings.get_v("tips")) and not guide_dismissed:
 		guide_active = true
+	# Campaign UI 2026-11-03: the plan has no side panel. The steps, Suggest and RUN are a
+	# bar along the bottom of the floor plan; the step's card floats above it and folds
+	# away (press its step again) to leave the whole plan on screen.
+	_plan_bar(s)
 	_guide()
-	var tabs := _h(box)
-	var select_tab := func(on: bool, tab_i: int) -> void:
-		if on:
-			_tab(tab_i)
-	for i in 3:
-		var b := _btn(tabs, ["1 Briefing", "2 Force", "3 Orders"][i], select_tab.bind(i), true)
-		b.set_pressed_no_signal(i == tab)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sep()
 	if flash != "":
 		_text(box, flash, INK, 11)
 		flash = ""
@@ -2112,20 +2382,42 @@ func show_plan() -> void:
 			_force(s)
 		2:
 			_orders(s)
-	_sep()
-	var n: int = main.campaign.plan_members(s).size()
-	var hb := _h(box)
-	_btn(hb, "<  Board", func(): main.ops_board())
+	if was_folded:
+		card.set_collapsed(true)
+
+
+## The operation's bar: back to the map, the three steps, Suggest, and RUN.
+func _plan_bar(s: Dictionary) -> void:
+	run_bar.visible = true
+	var h := run_row
+	_btn(h, "<  Map", func(): main.ops_board()).tooltip_text = "Back to the city (the plan is kept)"
+	h.add_child(VSeparator.new())
+	for i in 3:
+		var b := _btn(h, ["1 Briefing", "2 Force", "3 Orders"][i], func(_on): _step(i), true)
+		b.set_pressed_no_signal(i == tab)
+		b.custom_minimum_size = Vector2(104, 40)
+	h.add_child(VSeparator.new())
 	if bool(Settings.get_v("veteran")):
-		_lab(hb, "Veteran chief — the plan is yours.", GREY, 10)  # Q4: no Suggest at this difficulty
+		_lab(h, "Veteran chief: the plan is yours.", GREY, 10)  # Q4: no Suggest at this difficulty
 	else:
-		_btn(hb, "Suggest a plan", func(): main.ops_suggest())
-	var run := _btn(
-		box, "RUN   >   %d officer%s" % [n, "" if n == 1 else "s"], func(): main.ops_run()
-	)
-	run.custom_minimum_size = Vector2(0, 40)
+		_btn(h, "Suggest a plan", func(): main.ops_suggest())
+	var n: int = main.campaign.plan_members(s).size()
+	var run := _btn(h, "RUN  >  %d officer%s" % [n, "" if n == 1 else "s"], func(): main.ops_run())
+	run.custom_minimum_size = Vector2(170, 40)
 	run.add_theme_font_size_override("font_size", 16)
 	run.disabled = n == 0
+
+
+## A step pressed in the bar: open its card, or fold the card if it is already open.
+func _step(i: int) -> void:
+	if i == tab and card.visible:
+		card.set_collapsed(not card.collapsed)
+		for b in run_row.get_children():
+			if b is Button and (b as Button).toggle_mode:
+				(b as Button).set_pressed_no_signal((b as Button).text.begins_with(str(tab + 1) + " "))
+		return
+	card.set_collapsed(false)
+	_tab(i)
 
 
 func _tab(i: int) -> void:
@@ -3079,48 +3371,57 @@ func show_run() -> void:
 	_rewinding = false
 	_log_shown = 0
 	_clear()
+	card.set_closable(false)
 	var s: Dictionary = main.cur_sit
 	_title(s["title"], 14)
-	var h := _h(box)
+	# Campaign UI 2026-11-03: the controls are a floating bar along the bottom of the
+	# floor plan; the card above it carries what the radio and the squads say.
+	run_bar.visible = true
+	var h := run_row
 	var pb := _btn(h, "Pause", func(on): main.set_paused(on), true)
 	_run_refs["pause"] = pb
 	var clock := Label.new()
 	clock.add_theme_font_size_override("font_size", 18)
-	clock.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	clock.custom_minimum_size = Vector2(74, 0)
+	clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	h.add_child(clock)
 	_run_refs["clock"] = clock
-	var hs := _h(box)
 	var group := ButtonGroup.new()
 	var select_speed := func(on: bool, speed: float) -> void:
 		if on:
 			main.set_speed(speed)
 	for sp in UI.SPEEDS:
 		var speed: float = sp
-		var b := _btn(hs, ("%sx" % str(sp)).replace(".0x", "x"), select_speed.bind(speed), true)
+		var b := _btn(h, ("%sx" % str(sp)).replace(".0x", "x"), select_speed.bind(speed), true)
 		b.button_group = group
-		b.custom_minimum_size = Vector2(44, 0)
+		b.custom_minimum_size = Vector2(40, 0)
 		b.set_pressed_no_signal(is_equal_approx(sp, main.speed))
-	var pacing := _text(box, "", GREY, 10)
-	_run_refs["pacing"] = pacing
-	# EA_TASKS P1.G2: offered once the operation has been quiet for a minute of its own
-	# clock. The simulation still runs to the end; only the watching is skipped.
-	if main.has_method("can_skip_report"):
-		var sk := _btn(box, "Skip to the report", func(): main.skip_to_report())
-		sk.custom_minimum_size = Vector2(0, 30)
-		sk.disabled = true
-		_run_refs["skip"] = sk
-	_text(box, "REWIND (a way of looking: the operation itself never goes back)", GREY, 10)
-	var hr := _h(box)
+	h.add_child(VSeparator.new())
+	var rw := _lab(h, "REWIND", GREY, 10)
+	rw.tooltip_text = "A way of looking: the operation itself never goes back"
 	var sl := HSlider.new()
 	sl.min_value = 0.0
 	sl.max_value = 1.0
 	sl.step = 0.0
-	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.custom_minimum_size = Vector2(170, 0)
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.tooltip_text = rw.tooltip_text
 	sl.value_changed.connect(func(v): _on_rewind(v))
-	hr.add_child(sl)
+	h.add_child(sl)
 	_run_refs["slider"] = sl
-	_btn(hr, "Live", func(): _go_live())
+	_btn(h, "Live", func(): _go_live())
+	h.add_child(VSeparator.new())
+	# EA_TASKS P1.G2: offered once the operation has been quiet for a minute of its own
+	# clock. The simulation still runs to the end; only the watching is skipped.
+	if main.has_method("can_skip_report"):
+		var sk := _btn(h, "Skip to the report", func(): main.skip_to_report())
+		sk.disabled = true
+		_run_refs["skip"] = sk
+	var ab := _btn(h, "ABORT", func(): _abort())
+	ab.tooltip_text = "Every squad breaks contact and withdraws to its vehicles, still under fire until it gets there. A failure, but a failure with everyone alive always scores better than one with deaths."
+	_run_refs["abort"] = ab
+	var pacing := _text(box, "", GREY, 10)
+	_run_refs["pacing"] = pacing
 	var know := Label.new()
 	know.add_theme_font_size_override("font_size", 11)
 	know.add_theme_color_override("font_color", GREY)
@@ -3133,19 +3434,10 @@ func show_run() -> void:
 	var lg := RichTextLabel.new()
 	lg.bbcode_enabled = true
 	lg.scroll_following = true
-	lg.custom_minimum_size = Vector2(0, 300)
+	lg.custom_minimum_size = Vector2(0, 260)
 	lg.add_theme_font_size_override("normal_font_size", 11)
 	box.add_child(lg)
 	_run_refs["log"] = lg
-	var ab := _btn(box, "ABORT  ·  cut losses", func(): _abort())
-	ab.custom_minimum_size = Vector2(0, 36)
-	_run_refs["abort"] = ab
-	_text(
-		box,
-		"Abort: every squad breaks contact and withdraws to its vehicles, still under fire until it gets there. A failure, but a failure with everyone alive always scores better than one with deaths.",
-		GREY,
-		10
-	)
 
 
 func _abort() -> void:
@@ -3156,7 +3448,7 @@ func _abort() -> void:
 		_run_refs["abort"].text = "CONFIRM ABORT"
 		return
 	main.ops_abort()
-	_run_refs["abort"].text = "ABORTED: withdrawing"
+	_run_refs["abort"].text = "WITHDRAWING"
 	_run_refs["abort"].disabled = true
 
 
@@ -3440,6 +3732,10 @@ func show_debrief(res: Dictionary, w, dept_lines: Array) -> void:
 	_run_refs["rclock"] = rc
 	var back := _btn(box, "<  Back to the board", func(): main.ops_board())
 	back.custom_minimum_size = Vector2(0, 34)
+	# the same way out in the bar, so the report can be folded away to watch the replay
+	run_bar.visible = true
+	var mb := _btn(run_row, "<  Back to the map", func(): main.ops_board())
+	mb.custom_minimum_size = Vector2(180, 40)
 
 
 func _timeline(w) -> void:
