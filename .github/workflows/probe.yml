@@ -37,11 +37,32 @@ jobs:
       - name: import the project
         run: ~/godot/godot --headless --path . --import || true
       - name: bisect
-        run: GODOT=$HOME/godot/godot python3 tools/parse_bisect.py scripts/ui/ops_ui.gd
-      - name: also try the other big UI scripts
-        if: always()
+        # The log of a job is not reachable from the sandbox this was written in, so the
+        # answer is committed like the balance results are: one file the branch can read.
         run: |
-          for f in scripts/main.gd scripts/ui/city_map.gd scripts/ui/front.gd; do
-            echo "== $f"
-            GODOT=$HOME/godot/godot python3 tools/parse_bisect.py "$f" || true
-          done
+          set -uo pipefail
+          mkdir -p build/probe
+          {
+            for f in scripts/ui/ops_ui.gd scripts/main.gd scripts/ui/city_map.gd; do
+              echo "===== $f"
+              GODOT=$HOME/godot/godot python3 tools/parse_bisect.py "$f" || true
+              echo
+            done
+          } > build/probe/parse.txt 2>&1
+          cat build/probe/parse.txt
+      - name: commit the answer
+        run: |
+          set -euo pipefail
+          DEST=tests/results/parse-probe
+          mkdir -p "$DEST"
+          cp build/probe/parse.txt "$DEST/parse.txt"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DEST"
+          if git diff --cached --quiet; then
+            echo "no change since the last probe"
+            exit 0
+          fi
+          git commit -m "probe: the block the engine refuses [skip ci]"
+          git pull --rebase -X theirs origin "${{ github.ref_name }}"
+          git push origin "HEAD:refs/heads/${{ github.ref_name }}"
