@@ -3,6 +3,26 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — Stage 0 on an engine (2026-11-03)
+
+Every quick- and full-tier gate passes on Godot 4.7.2 (and the same numbers on 4.4.1).
+Details: `docs/EA_TASKS.md`, "Stage 0 on an engine".
+
+- **`ops_ui.gd` parses again** (B6): the engine pointed at line 1620, a multi-line lambda;
+  two errors it had hidden are fixed too.
+- **The training range now discounts courses for real** (B9) and the next-week fit
+  forecast agrees with the week again (B10, `dept_test` 12 of 12).
+- **Giving up no longer gets a man shot**, and officers stop treating a man who has given
+  up as a target: they re-judge him and go and cuff him, in sight or not (B3a–d).
+- **Hand-to-hand is a struggle, not a killing** (B8), and goes on the record as force.
+- **No line, no less-lethal shot** (B7); beanbag wind-up 0.4 s like the 40 mm.
+- **The shield no longer pins its carrier** (B2); its gate measures rounds through per
+  round fired. **The wolf gate runs on at least 32 seeds** (B1).
+- **Squads go in with a full stack** (CL2), and a room nobody can reach is reported as
+  not cleared. Gang raids: officers killed per operation 0.45 → 0.25.
+- Roadmap v2 (`docs/EA_ROADMAP_V2_2026-11-02.md`) and Stage 0 evidence in
+  `tests/results/stage0-2026-11-02/`.
+
 ## Unreleased — EA_TASKS Phase 1 close-out: the three known bugs, the pace, the chief, the bands (2026-11-02)
 
 - **Wolf brain holds cover (B1)**: a lone fighter now dwells in the cover it has
