@@ -33,18 +33,18 @@
       "winner": 1
     },
     "motel": {
-      "digest": "36f5db7f67ab496f",
-      "hits": 17,
-      "shots": 62,
-      "time": 118.267,
+      "digest": "6a1a07d04439d846",
+      "hits": 18,
+      "shots": 63,
+      "time": 131.367,
       "timeout": false,
       "winner": 0
     },
     "shield": {
-      "digest": "5d548d7082725000",
-      "hits": 12,
-      "shots": 123,
-      "time": 100.633,
+      "digest": "9a0a53ce7b69baad",
+      "hits": 13,
+      "shots": 100,
+      "time": 118.533,
       "timeout": false,
       "winner": 0
     },
