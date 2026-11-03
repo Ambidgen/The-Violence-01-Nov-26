@@ -351,6 +351,9 @@ func fit_next_week() -> Dictionary:
 	var nw: int = week + 1
 	var out := {"fit": 0, "back": 0, "graduates": 0, "returning": 0, "to_course": 0}
 	var acct: int = balance + allocation - payroll()
+	# next_week() charges the overdraft interest before it starts any course (P1.D2)
+	if acct < 0:
+		acct -= int(ceil(-acct * OVERDRAFT_INTEREST))
 	for r in officers:
 		var st := String(r.get("status", "active"))
 		var due: bool = int(r.get("out_until", 0)) <= nw
@@ -374,7 +377,10 @@ func fit_next_week() -> Dictionary:
 					why = "returning"
 		if why == "":
 			continue
-		if (not studying or course_done) and acct >= 0:
+		# next_week() starts a queued course unless the account is below the overdraft limit
+		# (P1.D2), not below zero; the forecast has to use the same line or it counts an
+		# officer as fit who will be on a course (dept_test: 5 of 12 weeks matched)
+		if (not studying or course_done) and acct >= OVERDRAFT_LIMIT:
 			var cid := _first_startable(r)
 			if cid != "":
 				acct -= course_cost(cid)
@@ -605,7 +611,9 @@ func enrol(r: Dictionary, cid: String) -> String:
 		return why
 	if frozen():
 		return "the account is in the red"
-	spend("%s: %s" % [c["name"], r["name"]], int(c["cost"]))
+	# the training range (P1.D4) prices and shortens every course; the screen already showed
+	# course_cost/course_weeks, but enrolment charged and booked the list figures
+	spend("%s: %s" % [c["name"], r["name"]], course_cost(cid))
 	return _start_course(r, cid)
 
 
@@ -613,7 +621,7 @@ func enrol(r: Dictionary, cid: String) -> String:
 func _start_course(r: Dictionary, cid: String) -> String:
 	var c: Dictionary = Courses.COURSES[cid]
 	r["course"] = cid
-	r["course_until"] = week + int(c["weeks"])
+	r["course_until"] = week + course_weeks(cid)
 	if r["status"] == "active":
 		r["status"] = "training"
 		r["out_until"] = int(r["course_until"])
@@ -690,7 +698,7 @@ func enrol_cohort(members: Array, cid := "cqb") -> Dictionary:
 		return {"ok": false, "started": [], "discounted": false, "cost": 0, "why": "nobody picked can start the refresher this week"}
 	var c: Dictionary = Courses.COURSES[cid]
 	var discounted: bool = elig.size() >= Courses.COHORT_N
-	var each: int = int(round(int(c["cost"]) * (Courses.COHORT_DISCOUNT if discounted else 1.0)))
+	var each: int = int(round(course_cost(cid) * (Courses.COHORT_DISCOUNT if discounted else 1.0)))
 	var names2: Array = []
 	for r2 in elig:
 		spend("%s (cohort): %s" % [c["name"], r2["name"]], each)

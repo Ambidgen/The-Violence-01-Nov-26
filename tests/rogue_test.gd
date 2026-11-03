@@ -206,6 +206,19 @@ func _init() -> void:
 	r1.run.apply(r1, {"range": true}, {})
 	check(r1.dept.has_range and r1.dept.course_cost("cqb") == int(round(cqb0 * Courses.RANGE_DISCOUNT)),
 		"the range offer makes courses a quarter cheaper ($%d -> $%d)" % [cqb0, r1.dept.course_cost("cqb")])
+	# and enrolment really charges and books it (2026-11-03: it charged the list price and
+	# booked the list weeks while the screen showed the discount)
+	var cand = null
+	for rr in r1.dept.officers:
+		if rr["status"] == "active" and String(rr.get("course", "")) == "" and Courses.blocked(rr, "cqb") == "":
+			cand = rr
+			break
+	if cand != null:
+		var bal0: int = r1.dept.balance
+		var why_r: String = r1.dept.enrol(cand, "cqb")
+		check(why_r == "" and bal0 - r1.dept.balance == r1.dept.course_cost("cqb")
+			and int(cand["course_until"]) == r1.dept.week + r1.dept.course_weeks("cqb"),
+			"with the range, enrolment charges $%d and books %d week(s) (charged $%d)" % [r1.dept.course_cost("cqb"), r1.dept.course_weeks("cqb"), bal0 - r1.dept.balance])
 	# the union contract: the morale floor rises for good
 	var m0: int = int(r1.dept.morale_home)
 	r1.run.apply(r1, {"morale_floor": Courses.MORALE_FLOOR_UP}, {})
