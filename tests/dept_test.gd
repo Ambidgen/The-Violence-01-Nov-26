@@ -396,12 +396,16 @@ func _next_week_forecast() -> void:
 			d.recruit(false)
 			kinds["academy"] = true
 		var f: Dictionary = d.fit_next_week()
-		d.next_week()
+		var week_lines: Array = d.next_week()
 		var got: int = d.available().size()
-		if got != int(f["fit"]):
+		# fit_next_week() says so itself: a resignation is a roll and is not guessed at, and
+		# a week that loses someone to morale cannot match the forecast (2026-11-02). The
+		# week's own lines say whether it happened, so this does not hide a real miss.
+		var resigned: int = week_lines.filter(func(l): return String(l).contains("has resigned")).size()
+		if got != int(f["fit"]) - resigned:
 			wrong += 1
 			if detail == "":
-				detail = "week %d: forecast %d fit, the week started with %d (%s)" % [d.week, int(f["fit"]), got, str(f)]
+				detail = "week %d: forecast %d fit, the week started with %d (%s)" % [d.week, int(f["fit"]) - resigned, got, str(f)]
 			print("    week %d: forecast %d fit (%s), the week started with %d" % [d.week, int(f["fit"]), str(f), got])
 	_check(wrong == 0, "the forecast matched the week in %d of 12 (statuses seen: %s; first miss: %s)" % [12 - wrong, ", ".join(kinds.keys()), detail])
 

@@ -184,9 +184,9 @@ func _init() -> void:
 	var c5 = Campaign.new()
 	c5.from_data(JSON.parse_string(j))
 	var j5 := JSON.stringify(c5.to_data())
-	var c5s := JSON.stringify(_canon(JSON.parse_string(j5)))
-	var cs := JSON.stringify(_canon(JSON.parse_string(j)))
-	_check(c5s == cs, "the campaign, politics included, survives a save (differs at: %s)" % _json_diff(cs, c5s))
+	var saved5 := JSON.stringify(_canon(JSON.parse_string(j5)))
+	var saved3 := JSON.stringify(_canon(JSON.parse_string(j)))
+	_check(saved5 == saved3, "the campaign, politics included, survives a save (differs at: %s)" % _json_diff(saved3, saved5))
 	# Q3: a cleared case leaks by the officer's integrity, not just its evidence
 	_check(Politics.leak_p("video", 60) > Politics.leak_p("witness", 60), "video still leaks more than witnesses at the same name")
 	_check(Politics.leak_p("video", 10) > Politics.leak_p("video", 95), "integrity 10 leaks (%.2f) more than integrity 95 (%.2f)" % [Politics.leak_p("video", 10), Politics.leak_p("video", 95)])
