@@ -824,7 +824,7 @@ func _open_document(
 	_documents(filter, document_id, return_person, return_topic)
 
 
-## Poll bars, told apart by pattern: Kettering solid ink, Okonjo-Vale hatched, Pell outline.
+## Poll bars, told apart by pattern: Carrick solid ink, Beddrow hatched, Pell outline.
 class PollBars:
 	extends Control
 	var p
