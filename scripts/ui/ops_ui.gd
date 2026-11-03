@@ -23,7 +23,7 @@ const Rogue = preload("res://scripts/campaign/rogue.gd")
 const CityMap = preload("res://scripts/ui/city_map.gd")
 const PANEL_W := 460.0
 const INK := Color("#141313")
-const GREY := Color("#6e675c")
+const GREY := Color("#5b5866")
 const OBJ_KINDS := ["clear", "arrest", "rescue", "contain", "post", "patrol"]
 
 var main
@@ -163,7 +163,7 @@ func _btn(parent: Control, text: String, cb: Callable, toggle := false) -> Butto
 
 func _card(parent: Control) -> VBoxContainer:
 	var p := PanelContainer.new()
-	p.add_theme_stylebox_override("panel", UI._sb(Color("#e6dfcd"), Color("#b3aa96"), 1, 8.0))
+	p.add_theme_stylebox_override("panel", UI._sb(Color("#fbf7ec"), Color("#8e8a95"), 1, 8.0))
 	parent.add_child(p)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 3)
@@ -187,6 +187,15 @@ static func _ward_label(s: Dictionary) -> String:
 	if s.get("city_error", false):
 		return "ward unavailable"
 	return "%s ward (trust %d)" % [s.get("ward", "Unknown"), int(s.get("trust", 0))]
+
+
+## EA_TASKS P3.A1 (visual overhaul 2026-11-03): every management screen sits over the
+## city, not over whatever tactical map the last operation left behind (with its stamps).
+func _city_backdrop() -> void:
+	var c = main.campaign
+	if c == null:
+		return
+	city_map.show_city(c.board, c.politics.trust, c.week())
 
 
 func show_board(lines := []) -> void:
@@ -372,6 +381,7 @@ func _desk_draft(di: int) -> void:
 		return
 	mode = "desk"
 	_clear()
+	_city_backdrop()
 	var d: Dictionary = run.drafts[di]
 	var kind: String = d["kind"]
 	_title({"doctrine": "THE INHERITANCE", "procurement": "PROCUREMENT", "program": "A TRAINING PROGRAM"}.get(kind, "A DRAFT"))
@@ -447,6 +457,7 @@ func _desk_offer(oi: int) -> void:
 		return
 	mode = "desk"
 	_clear()
+	_city_backdrop()
 	var o: Dictionary = run.offers[oi]
 	_title("AN OFFER")
 	_text(box, String(o["who_name"]), GREY, 12)
@@ -469,6 +480,7 @@ func _desk_event(ei: int) -> void:
 		return
 	mode = "desk"
 	_clear()
+	_city_backdrop()
 	var e: Dictionary = run.events[ei]
 	_title(String(e["title"]).to_upper())
 	_text(box, Rogue.fill(String(e["text"]), e), INK, 13)
@@ -492,6 +504,7 @@ func _armory() -> void:
 	var run = c.run
 	mode = "desk"
 	_clear()
+	_city_backdrop()
 	_title("ARMOURY AND PROGRAMS  ·  week %d" % c.week())
 	_text(box, "Seed %d%s." % [c.seed_val, ("  ·  inheritance: " + String(Rogue.DOCTRINES[run.doctrine]["name"])) if run.doctrine != "" else ""], GREY, 11)
 	var v := _card(box)
@@ -601,6 +614,7 @@ func _story_card(parent: Control, page: Dictionary) -> void:
 func _story_file() -> void:
 	mode = "story"
 	_clear()
+	_city_backdrop()
 	var c = main.campaign
 	var p = c.politics
 	var page: Dictionary = Story.current(c)
@@ -678,6 +692,7 @@ func _story_file() -> void:
 func _people() -> void:
 	mode = "people"
 	_clear()
+	_city_backdrop()
 	var c = main.campaign
 	_title("PEOPLE  ·  WEEK %d" % mini(c.week(), c.WEEKS))
 	_text(
@@ -903,6 +918,7 @@ class StandBar:
 func _city_hall() -> void:
 	mode = "city_hall"
 	_clear()
+	_city_backdrop()
 	var c = main.campaign
 	var p = c.politics
 	_title("CITY HALL  ·  week %d of %d" % [c.week(), c.WEEKS])
@@ -1207,6 +1223,7 @@ func _set_standing(n: int) -> void:
 func _roster() -> void:
 	mode = "roster"
 	_clear()
+	_city_backdrop()
 	var d = main.campaign.dept
 	_title("ROSTER  ·  week %d" % d.week)
 	_dept_strip(box)
@@ -1705,6 +1722,7 @@ func _dismiss(r: Dictionary) -> void:
 func _budget() -> void:
 	mode = "budget"
 	_clear()
+	_city_backdrop()
 	var d = main.campaign.dept
 	_title("BUDGET  ·  week %d" % d.week)
 	_dept_strip(box)
@@ -1845,6 +1863,7 @@ func _grant() -> void:
 func _cases() -> void:
 	mode = "cases"
 	_clear()
+	_city_backdrop()
 	var d = main.campaign.dept
 	_title("INTERNAL AFFAIRS  ·  week %d" % d.week)
 	_dept_strip(box)

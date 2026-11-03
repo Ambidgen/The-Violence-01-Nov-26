@@ -5,12 +5,18 @@ extends Control
 
 const City = preload("res://scripts/campaign/city.gd")
 const Ink = preload("res://scripts/view/ink.gd")
-const PAPER := Color("#e6dfcd")
-const CHARCOAL := Color("#302d2b")
-const WATER := Color("#83939a")
-const ROAD := Color("#a99a81")
-const WARD_COLORS := [Color("#d8c9a8"), Color("#cfbea5"), Color("#dbc9a4"),
-	Color("#c8b39c"), Color("#d3bc9d"), Color("#d5c8a7")]
+const C = preload("res://scripts/view/crayon.gd")
+# Visual overhaul 2026-11-03: the board map was flat vector beige and read as a different
+# game from the opening scenes. It is now drawn in the opening's crayon palette.
+const PAPER := Color("#fbf7ec")
+const CHARCOAL := Color("#1e1b1c")
+const PENCIL := Color("#5b5866")
+const WATER := Color("#16b7ff")
+const WATER_EDGE := Color("#2747e6")
+const ROAD := Color("#8a909b")
+const RED := Color("#ff2b30")
+const WARD_COLORS := [Color("#ffd166"), Color("#ff8fab"), Color("#86e35c"),
+	Color("#c69cff"), Color("#ffb36b"), Color("#f2b866")]
 # Label positions are cartographic annotations only, in the generator's metre frame.
 const LABELS := {
 	"northgate": [0.0, 2000.0], "riverside": [-2300.0, 650.0], "oldtown": [0.0, 620.0],
@@ -80,11 +86,12 @@ func _points(raw: Array) -> PackedVector2Array:
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), PAPER)
 	var font: Font = ThemeDB.fallback_font
-	draw_string(font, Vector2(36, 47), "PORT CARRICK  /  WEEK %d" % week, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, CHARCOAL)
-	draw_string(font, Vector2(37, 72), "CITY FILE  ·  ward trust and this week's calls", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, CHARCOAL)
+	C.letters(self, "PORT CARRICK  /  WEEK %d" % week, Vector2(36, 54), 30, CHARCOAL, 7, 2, 0.9)
+	C.line(self, Vector2(36, 64), Vector2(36 + C.letters_width("PORT CARRICK  /  WEEK %d" % week, 30, 0.9), 64), RED, 3.0, 8, 1.2, 2)
+	draw_string(font, Vector2(37, 88), "City file  ·  ward trust and this week's calls", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, PENCIL)
 	var city := City.data()
 	if city.has("error"):
-		draw_string(font, Vector2(37, 112), "City map unavailable. Check port-carrick/city.json.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, CHARCOAL)
+		draw_string(font, Vector2(37, 122), "City map unavailable. Check port-carrick/city.json.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, CHARCOAL)
 		return
 	_extent = city.get("extent", [])
 	if _extent.size() != 4 or float(_extent[2]) <= float(_extent[0]) or float(_extent[3]) <= float(_extent[1]):
@@ -93,25 +100,30 @@ func _draw() -> void:
 	var aspect := (float(_extent[2]) - float(_extent[0])) / (float(_extent[3]) - float(_extent[1]))
 	var w := minf(available.x, available.y * aspect)
 	var h := w / aspect
-	_map_rect = Rect2(Vector2((size.x - w) * 0.5, 96.0 + (available.y - h) * 0.5), Vector2(w, h))
-	draw_rect(_map_rect, Color("#eee6d5"))
+	_map_rect = Rect2(Vector2((size.x - w) * 0.5, 106.0 + (available.y - h) * 0.5), Vector2(w, h))
 	var wards: Dictionary = city.get("wards", {})
 	for i in City.WARD_IDS.size():
 		var id: String = City.WARD_IDS[i]
+		var k := 0
 		for polygon in wards.get(id, []):
 			if not (polygon is Array):
 				continue
 			var pts := _points(polygon)
 			if pts.size() >= 3:
-				draw_colored_polygon(pts, WARD_COLORS[i])
-				draw_polyline(pts, Color("#998b78"), 1.0, true)
+				var col: Color = WARD_COLORS[i]
+				C.hatch(self, pts, Color(col, 0.75), 4.6, -0.6 + 0.25 * i, 300 + i * 7 + k, 3.4)
+				C.outline(self, pts, col.darkened(0.35), 2.4, 320 + i * 7 + k, 1.0)
+				k += 1
 	var water: Dictionary = city.get("water", {}) if city.get("water", {}) is Dictionary else {}
+	var wk := 0
 	for polygon in water.get("river", []):
 		if not (polygon is Array):
 			continue
 		var pts := _points(polygon)
 		if pts.size() >= 3:
-			draw_colored_polygon(pts, WATER)
+			C.hatch(self, pts, Color(WATER, 0.85), 4.0, -0.25, 400 + wk, 3.6)
+			C.outline(self, pts, WATER_EDGE, 2.6, 410 + wk, 1.0)
+			wk += 1
 	var basins = water.get("basins", {})
 	if basins is Dictionary:
 		for basin in basins.values():
@@ -119,25 +131,34 @@ func _draw() -> void:
 				continue
 			var r: Array = basin.get("rect", [])
 			if r.size() == 4:
-				var a := _point(float(r[0]), float(r[1]))
-				var b := _point(float(r[2]), float(r[3]))
-				draw_rect(Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), Vector2(absf(a.x - b.x), absf(a.y - b.y))), WATER)
+				var a2 := _point(float(r[0]), float(r[1]))
+				var b2 := _point(float(r[2]), float(r[3]))
+				var rr := Rect2(Vector2(minf(a2.x, b2.x), minf(a2.y, b2.y)), Vector2(absf(a2.x - b2.x), absf(a2.y - b2.y)))
+				C.hatch_rect(self, rr, Color(WATER, 0.85), 4.0, -0.25, 420 + wk, 3.6)
+				C.outline(self, C.rect_poly(rr), WATER_EDGE, 2.4, 430 + wk, 1.0)
+				wk += 1
+	var sk := 0
 	for street in city.get("streets", []):
 		if not (street is Dictionary) or not (street.get("pts", []) is Array):
 			continue
-		if not String(street.get("cls", "")) in ["A", "B", "C", "M", "Q", "S"]:
+		var cls := String(street.get("cls", ""))
+		if not cls in ["A", "B", "C", "M", "Q", "S"]:
 			continue
 		var pts := _points(street.get("pts", []))
-		if pts.size() >= 2:
-			draw_polyline(pts, ROAD, 1.0, true)
-	draw_rect(_map_rect, CHARCOAL, false, 1.0)
+		var wide := 2.4 if cls in ["A", "M"] else 1.5
+		for j in range(1, pts.size()):
+			C.line(self, pts[j - 1], pts[j], Color(ROAD, 0.85), wide, 500 + sk * 13 + j, 0.7, 1)
+		sk += 1
+	C.outline(self, C.rect_poly(_map_rect), CHARCOAL, 3.0, 9, 1.4)
 	for i in City.WARD_IDS.size():
 		var id: String = City.WARD_IDS[i]
 		var xy: Array = LABELS[id]
 		var pos := _point(float(xy[0]), float(xy[1]))
 		var value := "  %d" % int(trust[i]) if i < trust.size() else ""
 		var name: String = "OLD TOWN" if id == "oldtown" else id.to_upper()
-		draw_string(font, pos + Vector2(-55, 0), name + value, HORIZONTAL_ALIGNMENT_CENTER, 110, 12, CHARCOAL)
+		var label := name + value
+		var lw := C.letters_width(label, 18, 0.9)
+		C.letters(self, label, pos + Vector2(-lw * 0.5, 6), 18, CHARCOAL, 600 + i, 2, 0.9)
 	var unlocated := 0
 	for i in situations.size():
 		var s: Dictionary = situations[i]
@@ -145,11 +166,13 @@ func _draw() -> void:
 			unlocated += 1
 			continue
 		var pos := _point(float(s["city_x"]), float(s["city_y"]))
-		var ink := Ink.accent(1.0) if s.get("status", "open") == "open" else Color("#6f6b61")
-		draw_circle(pos, 12.0, ink)
-		draw_arc(pos, 12.0, 0.0, TAU, 24, CHARCOAL, 1.0, true)
-		draw_string(font, pos + Vector2(-11, 5), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 22, 14, Color.WHITE)
+		var open: bool = s.get("status", "open") == "open"
+		var dot := C.ellipse_poly(pos, 15.0, 15.0, 16, 700 + i, 0.08)
+		C.hatch(self, dot, RED if open else ROAD, 2.6, 0.6, 710 + i, 3.6)
+		C.outline(self, dot, CHARCOAL, 2.4, 720 + i, 1.0)
+		var num := str(i + 1)
+		C.letters(self, num, pos + Vector2(-C.letters_width(num, 18, 0.9) * 0.5, 8), 18, Color.WHITE, 730 + i, 2, 0.9)
 	var footer := "Pins match the numbered cards. Locations are canonical; tactical layouts are schematic."
 	if unlocated > 0:
 		footer += "  %d older/unlocated call(s) not pinned." % unlocated
-	draw_string(font, Vector2(37, size.y - 38), footer, HORIZONTAL_ALIGNMENT_LEFT, maxf(1.0, size.x - 74.0), 12, CHARCOAL)
+	draw_string(font, Vector2(37, size.y - 38), footer, HORIZONTAL_ALIGNMENT_LEFT, maxf(1.0, size.x - 74.0), 13, PENCIL)

@@ -3,6 +3,29 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — one look, all the way through (2026-11-03)
+
+The game had three visual languages: the bright child's crayon of the opening scenes, the
+grey technical stock of the campaign shorts, and a muted mix in the game itself. Everything
+now follows the opening, as your 29 Oct direction asked (brighter, more childish).
+
+- **Shorts**: cream paper, sky and sun, notebook-paper panels, the opening's palette. Two
+  shorts (officer down, the allocation) had never drawn: `String(int)` aborted every frame.
+- **Title**: Port Carrick at night in a child's colours (the opening's last frame) instead
+  of grey-and-orange smog; the footer has its own paper scrap so it can be read.
+- **Board**: the city map is crayon (each ward its own wax, a scribbled river, red pins).
+- **Management screens sit over the city**, not the last operation's map (P3.A1; now a
+  failing check in `ui_walk` and `ops_ui_test` if it regresses).
+- **Operations**: indigo crayon fog and a lilac night page instead of near-black and grey;
+  plans in pastel rooms on green by day, saturated rooms by night.
+- **People and props**: police in the opening's royal blue, suspects in bright earth
+  colours, peach skin; brick, umber and moss brightened; sprites regenerated and re-baked.
+- **UI and the ledger of the dead**: cream and white notebook paper, sun-yellow selection,
+  crayon-lettered header.
+- **Names**: George Carrick and Alicia Beddrow (Port Carrick Together), as the story canon
+  and the opening's posters have them; Gordon Pell unchanged. Display text only.
+- Before/after screenshots: `tests/results/visual-2026-11-03/`.
+
 ## Unreleased — Stage 0 on an engine (2026-11-03)
 
 Every quick- and full-tier gate passes on Godot 4.7.2 (and the same numbers on 4.4.1).

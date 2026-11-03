@@ -14,8 +14,8 @@ extends SceneTree
 ## briefing spends money, the operation does not end, the week does not advance, a
 ## management screen does not open or close, or a visible control leaves the viewport
 ## horizontally (the overflow check). Known problems that belong to a later cycle are
-## reported as KNOWN and do not fail the walk (today: the stale tactical map behind
-## management screens, EA_TASKS P3.A1).
+## reported as KNOWN and do not fail the walk (today: the first call's disabled button
+## explains itself only in a tooltip, EA_TASKS P3.B1).
 
 const ALL_STEPS := ["title", "desk", "brief", "run", "endweek", "screens"]
 const SCREENS := ["Roster", "Budget", "Internal affairs", "City Hall", "Armoury and programs", "Campaign file"]
@@ -154,8 +154,8 @@ func press(sub: String, need := true, ui_root: Node = null) -> bool:
 func backdrop(tag: String) -> void:
 	var stale: bool = main.floorplan != null and main.floorplan.is_visible_in_tree() and not main.ops_ui.city_map.visible
 	facts["backdrop_" + tag] = "tactical map" if stale else "city map"
-	if stale:
-		note_known("management screens sit over the last tactical map, not the city (EA_TASKS P3.A1)")
+	# fixed 2026-11-03 (ops_ui._city_backdrop): no longer KNOWN, a regression fails the walk
+	check(not stale, "%s sits over the city map, not the last tactical map (EA_TASKS P3.A1)" % tag)
 
 
 func want(step: String) -> bool:
