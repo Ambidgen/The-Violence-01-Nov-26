@@ -51,18 +51,33 @@ jobs:
           } > build/probe/parse.txt 2>&1
           cat build/probe/parse.txt
       - name: commit the answer
+        # checkout leaves a detached HEAD, so `git pull` cannot be used here; the file is
+        # staged onto a local branch built from the remote tip, and the push is retried
+        # because the release gate may commit results for the same SHA meanwhile.
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          REF="${{ github.ref_name }}"
           DEST=tests/results/parse-probe
           mkdir -p "$DEST"
           cp build/probe/parse.txt "$DEST/parse.txt"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q origin "$REF"
+          git checkout -q -B probe-commit FETCH_HEAD
           git add "$DEST"
           if git diff --cached --quiet; then
             echo "no change since the last probe"
             exit 0
           fi
-          git commit -m "probe: the block the engine refuses [skip ci]"
-          git pull --rebase -X theirs origin "${{ github.ref_name }}"
-          git push origin "HEAD:refs/heads/${{ github.ref_name }}"
+          git commit -q -m "probe: the block the engine refuses [skip ci]"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:refs/heads/$REF"; then
+              echo "committed on attempt $attempt"
+              exit 0
+            fi
+            sleep 10
+            git fetch -q origin "$REF"
+            git rebase -X theirs FETCH_HEAD || exit 1
+          done
+          echo "::error::could not push the probe result"
+          exit 1
