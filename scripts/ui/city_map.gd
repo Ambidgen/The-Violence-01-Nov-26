@@ -260,7 +260,6 @@ func _draw() -> void:
 	var font: Font = ThemeDB.fallback_font
 	C.letters(self, "PORT CARRICK  /  WEEK %d" % week, Vector2(36, 54), 30, CHARCOAL, 7, 2, 0.9)
 	C.line(self, Vector2(36, 64), Vector2(36 + C.letters_width("PORT CARRICK  /  WEEK %d" % week, 30, 0.9), 64), RED, 3.0, 8, 1.2, 2)
-	draw_string(font, Vector2(37, 88), "City file  ·  ward trust and this week's calls", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, PENCIL)
 	var city := City.data()
 	if city.has("error"):
 		draw_string(font, Vector2(37, 122), "City map unavailable. Check port-carrick/city.json.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, CHARCOAL)
@@ -346,7 +345,7 @@ func _draw() -> void:
 		C.outline(self, dot, CHARCOAL, 2.4, 720 + i, 1.0)
 		var num := str(i + 1)
 		C.letters(self, num, pos + Vector2(-C.letters_width(num, 18, 0.9) * 0.5, 8), 18, Color.WHITE, 730 + i, 2, 0.9)
-	var footer := "Click a pin to open a call. Click Police HQ for the department, City Hall for the politics, the Ledger for the week."
+	var footer := "Pin: a call   ·   Police HQ: the department   ·   City Hall: politics   ·   Ledger: the week"
 	if unlocated > 0:
 		footer += "  %d older/unlocated call(s) not pinned." % unlocated
 	draw_string(font, Vector2(37, size.y - 38), footer, HORIZONTAL_ALIGNMENT_LEFT, maxf(1.0, size.x - 74.0), 13, PENCIL)

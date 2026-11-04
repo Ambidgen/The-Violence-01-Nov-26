@@ -5,9 +5,11 @@ extends PanelContainer
 ## The card sizes itself to its content, up to the height of the window.
 
 signal close_pressed
+signal help_toggled(on: bool)
 
 const UI = preload("res://scripts/ui/ui.gd")
 const C = preload("res://scripts/view/crayon.gd")
+const Icons = preload("res://scripts/ui/icons.gd")
 const INK := Color("#1e1b1c")
 const RED := Color("#ff2b30")
 
@@ -15,6 +17,7 @@ var width := 460.0
 var title_label: Label
 var collapse_btn: Button
 var close_btn: Button
+var help_btn: Button
 var scroll: ScrollContainer
 var bar: HBoxContainer
 var collapsed := false
@@ -47,9 +50,12 @@ func setup(content: Control) -> void:
 	title_label.add_theme_font_size_override("font_size", 17)
 	title_label.add_theme_color_override("font_color", INK)
 	bar.add_child(title_label)
-	collapse_btn = _bar_btn("–", "Fold the card to its title bar (or unfold it)")
+	help_btn = _bar_btn("help", "Explain: show the notes on this card")
+	help_btn.toggle_mode = true
+	help_btn.toggled.connect(func(on): help_toggled.emit(on))
+	collapse_btn = _bar_btn("fold", "Fold the card to its title bar (or unfold it)")
 	collapse_btn.pressed.connect(func(): set_collapsed(not collapsed))
-	close_btn = _bar_btn("×", "Close")
+	close_btn = _bar_btn("close", "Close")
 	close_btn.pressed.connect(func(): close_pressed.emit())
 	var rule := ColorRect.new()
 	rule.color = Color(RED, 0.85)
@@ -63,9 +69,10 @@ func setup(content: Control) -> void:
 	scroll.add_child(content)
 
 
-func _bar_btn(text: String, tip: String) -> Button:
+func _bar_btn(icon_id: String, tip: String) -> Button:
 	var b := Button.new()
-	b.text = text
+	b.icon = Icons.tex(icon_id, 18)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.tooltip_text = tip
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(30, 26)
@@ -93,7 +100,7 @@ func set_width(w: float) -> void:
 func set_collapsed(on: bool) -> void:
 	collapsed = on
 	scroll.visible = not on
-	collapse_btn.text = "+" if on else "–"
+	collapse_btn.icon = Icons.tex("unfold" if on else "fold", 18)
 	_last_min = -1.0
 	_refit()
 

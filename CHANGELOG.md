@@ -3,6 +3,23 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — fewer words, more pictures (2026-11-03)
+
+- **Crayon icons** (`scripts/ui/icons.gd`): 67 small hand-drawn SVGs in the opening's
+  palette, rasterised at runtime. Every campaign button gets one from its wording, and
+  shows one or two words (or none: Map, Open, Live, Pause, Menu); the full wording is the
+  tooltip.
+- **Chips instead of sentences**: the HUD (week, account, fit officers, IA cases), the
+  week (fit, injured, committed, account), a call (type, ward trust, visibility, time
+  pressure, status), the briefing, the station's account line (account, allocation,
+  payroll, morale, cases) and next week's roster outlook are icon-and-number chips with
+  the explanation in the tooltip.
+- **The ? on every card** shows or hides the explanation lines (tips, notes, the outgoing
+  chief's advice). They start hidden.
+- **Police HQ** is five picture doors. The desk and the call list are one row per item:
+  a picture, a few words, an arrow.
+- Hire and Sign read `Hire  $7,640  ·  +$1,200/wk`; the run's Skip reads `Skip 27/60 s`.
+
 ## Unreleased — the map is the campaign (2026-11-03)
 
 The right-hand side menu is gone. The campaign is played on the city map, and every choice

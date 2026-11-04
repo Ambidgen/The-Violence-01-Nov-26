@@ -121,7 +121,9 @@ func _overflow_walk(node: Node, vw: float, bad: Array) -> void:
 
 
 func find_btn(node: Node, sub: String) -> Button:
-	if node is Button and (node as Button).is_visible_in_tree() and sub.to_lower() in (node as Button).text.to_lower():
+	# 2026-11-03: buttons show an icon and a short word; the full wording is meta "label"
+	if node is Button and (node as Button).is_visible_in_tree() and (sub.to_lower() in (node as Button).text.to_lower()
+			or sub.to_lower() in String(node.get_meta("label", "")).to_lower()):
 		return node
 	for c in node.get_children():
 		var r := find_btn(c, sub)
