@@ -40,6 +40,7 @@ var hud_end: Button
 var run_bar: PanelContainer
 var run_row: HBoxContainer
 var _titled := false
+var cmd_sq := -1   # the squad picked for an order in the field (-1: none)
 static var show_hints := false   # the card's ? : explanation lines shown
 var _confirm_op := false
 var _confirm_back: Callable
@@ -3524,8 +3525,18 @@ func show_run() -> void:
 	know.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(know)
 	_run_refs["know"] = know
-	var sq := _rich(box, "", 120.0)
-	_run_refs["squads"] = sq
+	# Orders in the field (2026-11-03): a row per squad. Pick one, click a room on the
+	# plan: it moves there, consolidates and holds until Resume (or another room).
+	cmd_sq = -1
+	var sqbox := VBoxContainer.new()
+	sqbox.add_theme_constant_override("separation", 3)
+	box.add_child(sqbox)
+	_run_refs["sqbox"] = sqbox
+	_run_refs["sq_rows"] = {}
+	var note := _text(box, "", Ink.accent(0.9), 11)
+	note.visible = false
+	_run_refs["order_note"] = note
+	_text(box, "Pick a squad, then click a room on the plan: it moves there by the usual paths, consolidates and holds until you press Resume or pick another room. Squads only, not single officers.", GREY, 10)
 	_text(box, "RADIO", INK, 12)
 	var lg := RichTextLabel.new()
 	lg.bbcode_enabled = true
@@ -3602,40 +3613,8 @@ func refresh_run(w, fog) -> void:
 		)
 	else:
 		_run_refs["know"].text = "Fog lifted."
-	var bb := ""
-	if w.teams.size() > 0:
-		for el in w.teams[0]["elements"]:
-			if not el.has("orders"):
-				continue
-			var alive := 0
-			for m in el["members"]:
-				if m.alive() and not m.gone:
-					alive += 1
-			var ob: Dictionary = el.get("obj", {})
-			var what: String = Orders.OBJECTIVES.get(ob.get("kind", ""), {}).get("name", "")
-			var modes := {
-				"assault": "clearing",
-				"hold": "holding",
-				"hunt": "patrolling",
-				"wait": "on the phase line",
-				"withdraw": "withdrawing",
-				"support": "waiting on the next room",
-				"lost": "lost"
-			}
-			var st: String = String(modes.get(el["mode"], el["mode"]))
-			if el.get("consolidating", false):
-				st = "consolidating"
-			bb += (
-				"[b]SQUAD %d[/b]  %d/%d  ·  %s%s\n"
-				% [
-					el["i"] + 1,
-					alive,
-					el["members"].size(),
-					st,
-					("  ·  " + what) if what != "" else ""
-				]
-			)
-	_run_refs["squads"].text = Ink.bb(bb)
+	_squad_rows(w)
+
 	# the radio: what the officers say and what happens to them
 	var lg: RichTextLabel = _run_refs["log"]
 	_log_shown = maxi(_log_shown, w.log_base)
@@ -3656,6 +3635,100 @@ func refresh_run(w, fog) -> void:
 				lg.append_text(Ink.bb("[i][color=#6e675c]%s[/color][/i]\n" % txt))
 			_:
 				lg.append_text(Ink.bb("[color=#2f2e2d]%s[/color]\n" % txt))
+
+
+const RUN_MODES := {"assault": "clearing", "hold": "holding", "hunt": "patrolling", "wait": "phase line",
+	"withdraw": "withdrawing", "support": "waiting", "lost": "lost", "split": "clearing in pairs", "done": "done"}
+
+
+## The squad rows on the run card: select (to give an order), state, and Resume.
+func _squad_rows(w) -> void:
+	if w.teams.is_empty() or not _run_refs.has("sqbox"):
+		return
+	var rows: Dictionary = _run_refs["sq_rows"]
+	var live: bool = main.view_t < 0.0 and not w.over and not w.aborted
+	for el in w.teams[0]["elements"]:
+		if not el.has("orders") or el.get("child", false):
+			continue
+		var i: int = el["i"]
+		if not rows.has(i):
+			var h := _h(_run_refs["sqbox"])
+			var b := _btn(h, "Squad %d" % (i + 1), func(on): _pick_squad(i, on), true)
+			b.custom_minimum_size = Vector2(104, 32)
+			b.tooltip_text = "Select Squad %d, then click a room on the plan" % (i + 1)
+			var lab := _lab(h, "", INK, 12)
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lab.clip_text = true
+			var res := _btn(h, "Resume", func(): _resume_squad(i))
+			res.icon = Icons.tex("play", 20)
+			res.tooltip_text = "Squad %d goes back to its own orders from where it stands" % (i + 1)
+			rows[i] = {"b": b, "lab": lab, "res": res}
+		var r: Dictionary = rows[i]
+		var alive := 0
+		for m in el["members"]:
+			if m.alive() and not m.gone:
+				alive += 1
+		var st: String = String(RUN_MODES.get(el["mode"], el["mode"]))
+		if el.get("consolidating", false):
+			st = "consolidating"
+		var oroom: String = el.get("ordered_room", "")
+		if oroom != "":
+			var title: String = String(w.level.rooms[oroom]["title"]).to_lower()
+			st = ("holding the " if el.get("ordered_held", false) else "moving to the ") + title
+		var ob: Dictionary = el.get("obj", {})
+		var what: String = Orders.OBJECTIVES.get(ob.get("kind", ""), {}).get("name", "")
+		(r["lab"] as Label).text = "%d/%d  ·  %s%s" % [alive, el["members"].size(), st, ("  ·  " + what) if what != "" and oroom == "" else ""]
+		(r["lab"] as Label).tooltip_text = (r["lab"] as Label).text
+		var out: bool = el["mode"] in ["withdraw", "lost", "merged", "rejoined"] or alive == 0
+		(r["b"] as Button).disabled = out or not live
+		if (r["b"] as Button).disabled and cmd_sq == i:
+			_pick_squad(i, false)
+		(r["res"] as Button).visible = oroom != ""
+		(r["res"] as Button).disabled = not live
+
+
+func _pick_squad(i: int, on: bool) -> void:
+	cmd_sq = i if on else (-1 if cmd_sq == i else cmd_sq)
+	var rows: Dictionary = _run_refs.get("sq_rows", {})
+	for k in rows:
+		(rows[k]["b"] as Button).set_pressed_no_signal(k == cmd_sq)
+	_order_note("Squad %d: click a room on the plan" % (i + 1) if cmd_sq == i else "", false)
+
+
+func _order_note(t: String, bad := true) -> void:
+	if not _run_refs.has("order_note"):
+		return
+	var n: Label = _run_refs["order_note"]
+	n.text = t
+	n.visible = t != ""
+	n.add_theme_color_override("font_color", Ink.accent(0.9) if bad else INK)
+
+
+## A click on the floor plan while the operation runs: the picked squad's order.
+func run_click(p: Vector2) -> bool:
+	if mode != "run" or cmd_sq < 0 or main.world == null:
+		return false
+	if main.view_t >= 0.0:
+		_go_live()
+	var w = main.world
+	var room: String = w.level.room_at(p)
+	var why: String = w.order_squad_move(cmd_sq, room)
+	if why != "":
+		_order_note("Squad %d: %s" % [cmd_sq + 1, why])
+		return true
+	_pick_squad(cmd_sq, false)
+	_squad_rows(w)
+	return true
+
+
+func _resume_squad(i: int) -> void:
+	if main.world == null:
+		return
+	if main.view_t >= 0.0:
+		_go_live()
+	var why: String = main.world.order_squad_resume(i)
+	_order_note(("Squad %d: %s" % [i + 1, why]) if why != "" else "", true)
+	_squad_rows(main.world)
 
 
 ## Is a log line something the department would hear on the radio?

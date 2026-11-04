@@ -1726,6 +1726,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_MIDDLE or (mb.button_index == MOUSE_BUTTON_RIGHT and mode == "run"):
 			_panning = mb.pressed
 			return
+		# orders in the field (2026-11-03): with a squad picked, a click sends it to that room
+		if mode == "run" and op_mode and mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+			if ops_ui.run_click(get_global_mouse_position() / PX):
+				return
 		if mode == "plan" and mb.pressed and (mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT):
 			ops_ui.map_click(get_global_mouse_position() / PX, mb.button_index == MOUSE_BUTTON_RIGHT)
 			return

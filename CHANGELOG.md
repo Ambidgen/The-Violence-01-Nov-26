@@ -3,6 +3,27 @@
 Newest first. The README covers the game as it stands; this file keeps the history.
 
 
+## Unreleased — orders in the field (2026-11-03)
+
+A new live order while an operation runs: **move a squad to a room.**
+
+- On the run card each squad has a row (state, and Resume when it holds on an order).
+  Pick a squad, click a room on the plan.
+- The squad (never a single officer) breaks off, goes there by the ordinary paths (doors,
+  locked doors and whoever it meets on the way are handled as they always are),
+  **consolidates** (posts on the room's doors and windows) and **holds**. It does not
+  give the room up (HD15 fall-back is off while it holds on an order).
+- It holds until you press **Resume** (it goes back to its own objective from where it
+  stands, clearing from the nearest room still to clear) or pick **another room**.
+- A held room counts as cleared. The room is ringed in red on the plan (dashed on the
+  way, solid once held, tagged SQ1). Every order goes on the radio and the debrief
+  timeline ("Chief: Squad 1 to the kitchen, consolidate and hold").
+- Orders also override a phase line, are refused for rooms outside, and are given live
+  only (an order from the rewind view goes live first).
+- `tests/field_orders_test.gd` (quick tier): reach, hold, move again, resume, refusals,
+  timeline, and the same orders at the same tick replay the same operation. `ui_walk`
+  gives an order through the run card and a click on the plan.
+
 ## Unreleased — fewer words, more pictures (2026-11-03)
 
 - **Crayon icons** (`scripts/ui/icons.gd`): 67 small hand-drawn SVGs in the opening's

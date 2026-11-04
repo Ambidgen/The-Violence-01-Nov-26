@@ -148,7 +148,12 @@ func press(sub: String, need := true, ui_root: Node = null) -> bool:
 		else:
 			say("disabled '%s': %s" % [sub, b.tooltip_text])
 		return false
-	b.pressed.emit()
+	# a toggle button (a squad, a step, a speed) answers `toggled`, not `pressed`
+	if b.toggle_mode:
+		b.set_pressed_no_signal(true)
+		b.toggled.emit(true)
+	else:
+		b.pressed.emit()
 	return true
 
 
@@ -324,6 +329,23 @@ func _walk(seed_v: int) -> void:
 			await frames(20)
 			if want("run"):
 				await snap("run_start")
+			# orders in the field (2026-11-03): pick Squad 1, click a room on the plan
+			var w0 = main.world
+			var target := ""
+			for rn in w0.level.rooms:
+				if not w0.level.is_exterior(rn) and not w0.level.rooms[rn].get("hall", false):
+					target = rn
+					break
+			if check(press("Squad 1"), "the run card lists the squads to order"):
+				check(main.ops_ui.cmd_sq == 0, "Squad 1 is picked for an order")
+				check(main.ops_ui.run_click(w0.level.rooms[target]["label"]), "a click on the plan gives the picked squad its order")
+				var el0: Dictionary = w0.teams[0]["elements"][0]
+				check(el0.get("ordered_room", "") == target, "Squad 1 moves to the %s and holds (%s)" % [target, el0.get("ordered_room", "none")])
+				await frames(30)
+				await snap("run_order")
+				check(press("Resume"), "Resume is offered for the squad holding on an order")
+				await frames(4)
+				check(not el0.has("ordered_room"), "Resume returns Squad 1 to its orders")
 			press("20x", false)
 			var shot_mid := false
 			while not main._op_done and Time.get_ticks_msec() - t0 < OP_WALL_LIMIT_MS:
